@@ -1,0 +1,28 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Mac
+.DS_Store
+
+# Output bestanden (optioneel uitcommentariëren als je deze wilt tracken)
+*.ged
+
+# Excel backups
+~$*.xlsx
