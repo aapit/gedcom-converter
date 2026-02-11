@@ -115,7 +115,32 @@ class GedcomGenerator:
                 person = self.individuals[quartier_num]
 
                 f.write(f"0 {person['id']} INDI\n")
-                f.write(f"1 NAME {person['name']}\n")
+
+                # Format naam als GEDCOM: voornaam /achternaam/
+                name = person['name']
+                if name and isinstance(name, str):
+                    name_parts = name.split()
+                    if len(name_parts) > 1:
+                        # Laatste woord is achternaam (tenzij het een tussenvoegsel is)
+                        # Voor Nederlandse namen: check of laatste woord een achternaam is
+                        surname_idx = len(name_parts) - 1
+
+                        # Check voor tussenvoegsels die bij achternaam horen
+                        while surname_idx > 0 and name_parts[surname_idx - 1].lower() in ['van', 'de', 'den', 'der', 'van den', 'van de', 'ter', 'te', "'t"]:
+                            surname_idx -= 1
+
+                        given = " ".join(name_parts[:surname_idx])
+                        surname = " ".join(name_parts[surname_idx:])
+                        f.write(f"1 NAME {given} /{surname}/\n")
+                    else:
+                        # Alleen achternaam
+                        f.write(f"1 NAME /{name}/\n")
+                elif name:
+                    # Naam is niet een string (bijv. nummer), converteer naar string
+                    f.write(f"1 NAME /{str(name)}/\n")
+                else:
+                    f.write(f"1 NAME /Onbekend/\n")
+
                 f.write(f"1 SEX {person['sex']}\n")
 
                 # Geboorte
