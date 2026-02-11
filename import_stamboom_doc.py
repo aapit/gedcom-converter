@@ -77,6 +77,7 @@ class StamboomParser:
         self.current_marriage = None
         self.in_children_section = False
         self.current_marriage_num = 0
+        self.parsing_spouse_info = False  # True wanneer we partner info aan het parsen zijn
 
     def normalize_name(self, name):
         """Converteer all-caps namen naar title case"""
@@ -266,6 +267,7 @@ class StamboomParser:
             self.current_person = self.parse_person_header(line)
             self.current_marriage = None
             self.in_children_section = False
+            self.parsing_spouse_info = False
             self.current_marriage_num = 0
             return
 
@@ -274,47 +276,55 @@ class StamboomParser:
 
         # Parse geboren (*)
         if line.startswith("*"):
-            rest = line[1:].strip()
-            # Split op komma als er een doop symbool in staat
-            if "," in rest and ("△" in rest or "Δ" in rest):
-                parts = rest.split(",")
-                place, date = self.parse_place_date(parts[0])
-            else:
-                place, date = self.parse_place_date(rest)
-            self.current_person.birth_place = place
-            self.current_person.birth_date = date
+            # Negeer geboren data in kinderen sectie of partner info sectie
+            if not self.in_children_section and not self.parsing_spouse_info:
+                rest = line[1:].strip()
+                # Split op komma als er een doop symbool in staat
+                if "," in rest and ("△" in rest or "Δ" in rest):
+                    parts = rest.split(",")
+                    place, date = self.parse_place_date(parts[0])
+                else:
+                    place, date = self.parse_place_date(rest)
+                self.current_person.birth_place = place
+                self.current_person.birth_date = date
 
         # Parse gedoopt (△ of Δ)
         elif line.startswith("△") or line.startswith("Δ"):
-            rest = line[1:].strip()
-            # Format: "RK Sint Anthonis 26-08-1707, gett. Derick Jans en Joanna Jans"
-            if "gett." in rest or "get." in rest:
-                parts = re.split(r",?\s*gett?\.?\s*", rest)
-                if len(parts) > 0:
-                    place, date = self.parse_place_date(parts[0])
+            # Negeer doop data in kinderen sectie of partner info sectie
+            if not self.in_children_section and not self.parsing_spouse_info:
+                rest = line[1:].strip()
+                # Format: "RK Sint Anthonis 26-08-1707, gett. Derick Jans en Joanna Jans"
+                if "gett." in rest or "get." in rest:
+                    parts = re.split(r",?\s*gett?\.?\s*", rest)
+                    if len(parts) > 0:
+                        place, date = self.parse_place_date(parts[0])
+                        self.current_person.baptism_place = place
+                        self.current_person.baptism_date = date
+                    if len(parts) > 1:
+                        self.current_person.baptism_witnesses = [w.strip() for w in parts[1].split(" en ")]
+                else:
+                    place, date = self.parse_place_date(rest)
                     self.current_person.baptism_place = place
                     self.current_person.baptism_date = date
-                if len(parts) > 1:
-                    self.current_person.baptism_witnesses = [w.strip() for w in parts[1].split(" en ")]
-            else:
-                place, date = self.parse_place_date(rest)
-                self.current_person.baptism_place = place
-                self.current_person.baptism_date = date
 
         # Parse overleden (†)
         elif line.startswith("†"):
-            place, date = self.parse_place_date(line[1:].strip())
-            self.current_person.death_place = place
-            self.current_person.death_date = date
+            # Negeer overleden data in kinderen sectie of partner info sectie
+            if not self.in_children_section and not self.parsing_spouse_info:
+                place, date = self.parse_place_date(line[1:].strip())
+                self.current_person.death_place = place
+                self.current_person.death_date = date
 
         # Parse begraven (▭)
         elif "begr." in line.lower() or line.startswith("▭"):
-            # "begr. RK Beers 14-02-1731"
-            rest = re.sub(r"begr\.?\s*", "", line, flags=re.IGNORECASE).strip()
-            rest = rest.lstrip("▭").strip()
-            place, date = self.parse_place_date(rest)
-            self.current_person.burial_place = place
-            self.current_person.burial_date = date
+            # Negeer begraven data in kinderen sectie of partner info sectie
+            if not self.in_children_section and not self.parsing_spouse_info:
+                # "begr. RK Beers 14-02-1731"
+                rest = re.sub(r"begr\.?\s*", "", line, flags=re.IGNORECASE).strip()
+                rest = rest.lstrip("▭").strip()
+                place, date = self.parse_place_date(rest)
+                self.current_person.burial_place = place
+                self.current_person.burial_date = date
 
         # Parse huwelijk
         elif (re.search(r"^(Otr?\.|Tr\.)", line) or
@@ -327,6 +337,7 @@ class StamboomParser:
             self.current_marriage.marriage_num = self.current_marriage_num
             self.current_person.marriages.append(self.current_marriage)
             self.in_children_section = False
+            self.parsing_spouse_info = True  # We gaan nu partner info parsen
 
             # Parse datum en plaats
             # "Otr. / tr. als jongeman  NG Beers 23-04 / 07-05-1702"
@@ -356,6 +367,7 @@ class StamboomParser:
         # Parse kinderen sectie
         elif line.startswith("Hieruit:") or re.match(r"^Uit\s+\(\d+\)", line):
             self.in_children_section = True
+            self.parsing_spouse_info = False  # Niet meer in partner info sectie
             # Extract huwelijksnummer
             marriage_num_match = re.search(r"Uit\s+\((\d+)\)", line)
             if marriage_num_match:
