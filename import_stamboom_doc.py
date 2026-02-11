@@ -82,6 +82,8 @@ class StamboomParser:
         self.in_children_section = False
         self.current_marriage_num = 0
         self.parsing_spouse_info = False  # True wanneer we partner info aan het parsen zijn
+        self.unnamed_children = []  # Kinderen zonder generatie ID
+        self.current_child = None  # Huidig kind zonder generatie ID
 
     def normalize_name(self, name):
         """Converteer all-caps namen naar title case"""
@@ -273,6 +275,7 @@ class StamboomParser:
             self.in_children_section = False
             self.parsing_spouse_info = False
             self.current_marriage_num = 0
+            self.current_child = None
             return
 
         if not self.current_person:
@@ -281,16 +284,27 @@ class StamboomParser:
         # Parse geboren (*)
         if line.startswith("*"):
             rest = line[1:].strip()
+
+            # Check of er een sterfte symbool (†) op dezelfde regel staat
+            death_part = None
+            if "†" in rest:
+                parts = rest.split("†", 1)
+                rest = parts[0].strip()
+                death_part = parts[1].strip()
             # Split op komma als er een doop symbool in staat
-            if "," in rest and ("△" in rest or "Δ" in rest):
+            elif "," in rest and ("△" in rest or "Δ" in rest):
                 parts = rest.split(",")
-                place, date = self.parse_place_date(parts[0])
-            else:
-                place, date = self.parse_place_date(rest)
+                rest = parts[0]
+
+            place, date = self.parse_place_date(rest)
 
             # Bepaal waar we deze info opslaan
-            if self.in_children_section:
-                # Negeer - dit is een kind zonder generatie ID
+            if self.in_children_section and self.current_child:
+                # Dit is een kind zonder generatie ID - sla geboorte info op
+                self.current_child.birth_place = place
+                self.current_child.birth_date = date
+            elif self.in_children_section:
+                # Negeer - kinderen sectie maar geen current_child
                 pass
             elif self.parsing_spouse_info and self.current_marriage:
                 # Dit is partner geboorte info
@@ -300,6 +314,19 @@ class StamboomParser:
                 # Dit is de huidige persoon
                 self.current_person.birth_place = place
                 self.current_person.birth_date = date
+
+            # Parse sterfte info als die op dezelfde regel staat
+            if death_part:
+                death_place, death_date = self.parse_place_date(death_part)
+                if self.in_children_section and self.current_child:
+                    self.current_child.death_place = death_place
+                    self.current_child.death_date = death_date
+                elif self.parsing_spouse_info and self.current_marriage:
+                    self.current_marriage.spouse_death_place = death_place
+                    self.current_marriage.spouse_death_date = death_date
+                elif not self.in_children_section:
+                    self.current_person.death_place = death_place
+                    self.current_person.death_date = death_date
 
         # Parse gedoopt (△ of Δ)
         elif line.startswith("△") or line.startswith("Δ"):
@@ -325,8 +352,12 @@ class StamboomParser:
             place, date = self.parse_place_date(line[1:].strip())
 
             # Bepaal waar we deze info opslaan
-            if self.in_children_section:
-                # Negeer - dit is een kind zonder generatie ID
+            if self.in_children_section and self.current_child:
+                # Dit is een kind zonder generatie ID - sla overleden info op
+                self.current_child.death_place = place
+                self.current_child.death_date = date
+            elif self.in_children_section:
+                # Negeer - kinderen sectie maar geen current_child
                 pass
             elif self.parsing_spouse_info and self.current_marriage:
                 # Dit is partner overleden info
@@ -399,18 +430,31 @@ class StamboomParser:
         elif self.in_children_section:
             # Kijk of het een verwijzing naar een kind is
             # "Jan (Joannes) Thomassen, 1703, zie III.1"
-            # "Jenneke (Joanna) Thomassen"
             child_match = re.search(r"zie\s+([IVX]+\.\d+)", line)
             if child_match:
                 child_ref = child_match.group(1)
                 self.current_person.children.append(child_ref)
+                self.current_child = None  # Reset current child
             elif re.match(r"^[A-Z]", line) and not any(
-                keyword in line
-                for keyword in ["Arch.", "Beers", "Cuijk", "Wanroij", "Ibid", "Error"]
+                keyword in line.lower()
+                for keyword in ["arch.", "beers", "cuijk", "wanroij", "ibid", "error", "uit", "hieruit", "generatie", "tr.", "otr."]
             ):
-                # Mogelijk een kind zonder zie-verwijzing
-                # Bewaar als notitie
-                pass
+                # Dit is een kind zonder generatie ID
+                # Maak een nieuw kind persoon aan
+                child_name = line.strip()
+                # Verwijder eventuele trailing punten en datums
+                child_name = re.sub(r",.*$", "", child_name)  # Verwijder alles na komma
+                child_name = re.sub(r"\s*\d{4}.*$", "", child_name)  # Verwijder jaar
+
+                child = Person(f"{self.current_person.generation_id}_child_{len(self.unnamed_children)+1}", None)
+                child.name = self.normalize_name(child_name)
+                child.parent_ref = self.current_person.generation_id
+                # Probeer geslacht te bepalen uit naam patronen
+                # Dit is niet perfect, maar beter dan niets
+                child.sex = None  # Onbekend, tenzij we het kunnen afleiden
+
+                self.unnamed_children.append(child)
+                self.current_child = child
 
         # Anders: notitie
         else:
@@ -476,6 +520,14 @@ class StamboomParser:
                     person_id_map[spouse_key] = f"@I{spouse_id_start}@"
                     spouse_id_start += 1
 
+        # Maak personen aan voor kinderen zonder generatie ID
+        child_id_start = 20000  # Start bij 20000 om conflict te vermijden
+        child_persons = {}
+        for child in self.unnamed_children:
+            child_persons[child.generation_id] = child
+            person_id_map[child.generation_id] = f"@I{child_id_start}@"
+            child_id_start += 1
+
         # Maak families - eerst alle families creëren
         families = {}
         family_id = 1
@@ -513,7 +565,7 @@ class StamboomParser:
                         person_families[spouse_key] = []
                     person_families[spouse_key].append(fam_id)
 
-        # Stap 2: Voeg kinderen toe aan families
+        # Stap 2: Voeg kinderen toe aan families (met generatie ID)
         for gen_id in sorted(self.persons.keys()):
             person = self.persons[gen_id]
             person_id = person_id_map[gen_id]
@@ -530,6 +582,20 @@ class StamboomParser:
                                 families[fam_key]["children"].append(person_id)
                                 break
 
+        # Stap 3: Voeg kinderen zonder generatie ID toe aan families
+        for child in self.unnamed_children:
+            child_id = person_id_map[child.generation_id]
+            parent_ref = child.parent_ref
+
+            if parent_ref and parent_ref in person_families and person_families[parent_ref]:
+                # Gebruik de eerste familie van de ouder
+                parent_fam_id = person_families[parent_ref][0]
+                # Zoek de familie met dit ID
+                for fam_key, fam_data in families.items():
+                    if fam_data["id"] == parent_fam_id:
+                        families[fam_key]["children"].append(child_id)
+                        break
+
         with open(output_file, "w", encoding="utf-8") as f:
             # Header
             f.write("0 HEAD\n")
@@ -542,8 +608,8 @@ class StamboomParser:
             f.write("2 VERS 5.5.1\n")
             f.write("1 CHAR UTF-8\n")
 
-            # Individuen - eerst reguliere personen, dan partners
-            all_persons = list(self.persons.items()) + list(spouse_persons.items())
+            # Individuen - eerst reguliere personen, dan partners, dan kinderen
+            all_persons = list(self.persons.items()) + list(spouse_persons.items()) + list(child_persons.items())
 
             for gen_id, person in all_persons:
                 person_id = person_id_map[gen_id]
