@@ -69,6 +69,8 @@ class Marriage:
         self.spouse_birth_place = None
         self.spouse_death_date = None
         self.spouse_death_place = None
+        self.spouse_father_name = None  # Naam van vader van partner
+        self.spouse_mother_name = None  # Naam van moeder van partner
         self.witnesses = []
 
 
@@ -210,7 +212,8 @@ class StamboomParser:
         # Of: "I.1 Joannes Thomissen [512]"
 
         # Extract generation ID
-        gen_match = re.match(r"^([IVX]+\.\d+)\s+(.+)$", line)
+        # Patroon kan zijn "VII.5 " of "VII.5. " (met optionele punt na cijfer)
+        gen_match = re.match(r"^([IVX]+\.\d+)\.?\s+(.+)$", line)
         if not gen_match:
             return None
 
@@ -257,14 +260,34 @@ class StamboomParser:
 
         return person
 
+    def parse_spouse_parents(self, spouse_info):
+        """Parse ouders uit spouse info string"""
+        # Patroon: "dr. van Benignus Joseph Coppens en Cornelia Francisca Xaveria Story"
+        # Of: "zn. van [vader] en [moeder]"
+
+        parent_match = re.search(r"(?:zn\.|dr\.)\s+van\s+(.+?)\s+en\s+(.+?)(?:,|$)", spouse_info, re.IGNORECASE)
+        if parent_match:
+            father_name = parent_match.group(1).strip()
+            mother_name = parent_match.group(2).strip()
+
+            # Verwijder eventuele extra info na de moeder naam (zoals beroep, religie, etc.)
+            # Stop bij woorden die indiceren dat het extra info is
+            for stop_word in [" bibliothecaris", " bakker", " boer", " smid", ". rk", ". ng", ". herv"]:
+                if stop_word in mother_name.lower():
+                    mother_name = mother_name[:mother_name.lower().index(stop_word)].strip()
+
+            return father_name, mother_name
+
+        return None, None
+
     def parse_line(self, line):
         """Parse een enkele regel"""
         line = line.strip()
         if not line:
             return
 
-        # Check of dit een nieuwe persoon is
-        if re.match(r"^[IVX]+\.\d+\s+", line):
+        # Check of dit een nieuwe persoon is (met optionele punt na cijfer: "VII.5." of "VII.5 ")
+        if re.match(r"^[IVX]+\.\d+\.?\s+", line):
             # Sla vorige persoon op
             if self.current_person:
                 self.persons[self.current_person.generation_id] = self.current_person
@@ -310,6 +333,14 @@ class StamboomParser:
                 # Dit is partner geboorte info
                 self.current_marriage.spouse_birth_place = place
                 self.current_marriage.spouse_birth_date = date
+
+                # Parse ouders van partner indien aanwezig op deze regel
+                # Bijvoorbeeld: "* Den Haag 18-05-1955, dr. van Benignus Joseph Coppens en Cornelia Francisca Xaveria Story"
+                full_rest = line[1:].strip()  # Volledige regel na het * symbool
+                father_name, mother_name = self.parse_spouse_parents(full_rest)
+                if father_name and mother_name:
+                    self.current_marriage.spouse_father_name = father_name
+                    self.current_marriage.spouse_mother_name = mother_name
             else:
                 # Dit is de huidige persoon
                 self.current_person.birth_place = place
@@ -327,6 +358,24 @@ class StamboomParser:
                 elif not self.in_children_section:
                     self.current_person.death_place = death_place
                     self.current_person.death_date = death_date
+
+            # Check of er huwelijks info op dezelfde regel staat
+            # Bijvoorbeeld: "* ... † ... Tr. plaats datum met"
+            if not self.in_children_section and not self.parsing_spouse_info:
+                marriage_match = re.search(r"\b(Otr?\.|Tr\.)\s+(.+?)\s+met\s*$", line, re.IGNORECASE)
+                if marriage_match:
+                    # Start een nieuw huwelijk
+                    self.current_marriage_num += 1
+                    self.current_marriage = Marriage()
+                    self.current_marriage.marriage_num = self.current_marriage_num
+                    self.current_person.marriages.append(self.current_marriage)
+                    self.parsing_spouse_info = True  # We verwachten partner naam op volgende regel
+
+                    # Parse huwelijks datum en plaats
+                    place_date_str = marriage_match.group(2).strip()
+                    place, date = self.parse_place_date(place_date_str)
+                    self.current_marriage.marriage_place = place
+                    self.current_marriage.marriage_date = date
 
         # Parse gedoopt (△ of Δ)
         elif line.startswith("△") or line.startswith("Δ"):
@@ -416,6 +465,12 @@ class StamboomParser:
             ):
                 self.current_marriage.spouse_name = self.normalize_name(line)
                 self.current_marriage.spouse_info = line
+
+                # Parse ouders van partner indien aanwezig
+                father_name, mother_name = self.parse_spouse_parents(line)
+                if father_name and mother_name:
+                    self.current_marriage.spouse_father_name = father_name
+                    self.current_marriage.spouse_mother_name = mother_name
 
         # Parse kinderen sectie
         elif line.startswith("Hieruit:") or re.match(r"^Uit\s+\(\d+\)", line):
@@ -520,6 +575,44 @@ class StamboomParser:
                     person_id_map[spouse_key] = f"@I{spouse_id_start}@"
                     spouse_id_start += 1
 
+        # Maak personen aan voor ouders van partners
+        parent_id_start = 30000  # Start bij 30000 om conflict te vermijden
+        parent_persons = {}
+        parent_families = {}  # Voor het opslaan van ouder-familie paren
+
+        for gen_id, person in self.persons.items():
+            for i, marriage in enumerate(person.marriages):
+                if marriage.spouse_father_name and marriage.spouse_mother_name:
+                    spouse_key = f"{gen_id}_spouse_{i+1}"
+                    parent_fam_key = f"{spouse_key}_parents"
+
+                    # Maak vader persoon
+                    father_key = f"{spouse_key}_father"
+                    if father_key not in person_id_map:
+                        father_person = Person(father_key, None)
+                        father_person.name = self.normalize_name(marriage.spouse_father_name)
+                        father_person.sex = "M"
+                        parent_persons[father_key] = father_person
+                        person_id_map[father_key] = f"@I{parent_id_start}@"
+                        parent_id_start += 1
+
+                    # Maak moeder persoon
+                    mother_key = f"{spouse_key}_mother"
+                    if mother_key not in person_id_map:
+                        mother_person = Person(mother_key, None)
+                        mother_person.name = self.normalize_name(marriage.spouse_mother_name)
+                        mother_person.sex = "F"
+                        parent_persons[mother_key] = mother_person
+                        person_id_map[mother_key] = f"@I{parent_id_start}@"
+                        parent_id_start += 1
+
+                    # Sla familie relatie op voor later
+                    parent_families[parent_fam_key] = {
+                        "father_key": father_key,
+                        "mother_key": mother_key,
+                        "child_key": spouse_key  # De partner is kind van deze ouders
+                    }
+
         # Maak personen aan voor kinderen zonder generatie ID
         child_id_start = 20000  # Start bij 20000 om conflict te vermijden
         child_persons = {}
@@ -565,6 +658,51 @@ class StamboomParser:
                         person_families[spouse_key] = []
                     person_families[spouse_key].append(fam_id)
 
+        # Stap 1b: Maak families voor ouders van partners
+        for parent_fam_key, parent_fam_data in parent_families.items():
+            fam_id = f"@F{family_id}@"
+            family_id += 1
+
+            father_key = parent_fam_data["father_key"]
+            mother_key = parent_fam_data["mother_key"]
+            child_key = parent_fam_data["child_key"]
+
+            father_id = person_id_map.get(father_key)
+            mother_id = person_id_map.get(mother_key)
+            child_id = person_id_map.get(child_key)
+
+            # Maak familie record
+            families[parent_fam_key] = {
+                "id": fam_id,
+                "parent": father_id,
+                "parent_sex": "M",
+                "parent_gen_id": father_key,
+                "spouse_id": mother_id,
+                "children": [child_id] if child_id else [],
+                "marriage": None,  # Geen huwelijks info voor ouders van partners
+            }
+
+            # Voeg FAMS voor vader en moeder toe
+            if father_key not in person_families:
+                person_families[father_key] = []
+            person_families[father_key].append(fam_id)
+
+            if mother_key not in person_families:
+                person_families[mother_key] = []
+            person_families[mother_key].append(fam_id)
+
+            # Voeg FAMC voor kind (de partner) toe - dit is de link die ontbrak!
+            # We markeren dit met een speciale key zodat we het later kunnen verwerken
+            if child_key not in person_families:
+                person_families[child_key] = []
+            # Voeg een marker toe dat dit een FAMC link is (niet FAMS)
+            # We slaan dit op in een aparte dictionary
+            if not hasattr(self, 'person_parent_families'):
+                self.person_parent_families = {}
+            if child_key not in self.person_parent_families:
+                self.person_parent_families[child_key] = []
+            self.person_parent_families[child_key].append(fam_id)
+
         # Stap 2: Voeg kinderen toe aan families (met generatie ID)
         for gen_id in sorted(self.persons.keys()):
             person = self.persons[gen_id]
@@ -608,8 +746,8 @@ class StamboomParser:
             f.write("2 VERS 5.5.1\n")
             f.write("1 CHAR UTF-8\n")
 
-            # Individuen - eerst reguliere personen, dan partners, dan kinderen
-            all_persons = list(self.persons.items()) + list(spouse_persons.items()) + list(child_persons.items())
+            # Individuen - eerst reguliere personen, dan partners, dan kinderen, dan ouders van partners
+            all_persons = list(self.persons.items()) + list(spouse_persons.items()) + list(child_persons.items()) + list(parent_persons.items())
 
             for gen_id, person in all_persons:
                 person_id = person_id_map[gen_id]
@@ -688,6 +826,11 @@ class StamboomParser:
                     if person_families[person.parent_ref]:
                         # Gebruik de eerste familie van de ouder
                         parent_fam_id = person_families[person.parent_ref][0]
+                        f.write(f"1 FAMC {parent_fam_id}\n")
+
+                # Link naar ouders voor partners (FAMC via person_parent_families)
+                if hasattr(self, 'person_parent_families') and gen_id in self.person_parent_families:
+                    for parent_fam_id in self.person_parent_families[gen_id]:
                         f.write(f"1 FAMC {parent_fam_id}\n")
 
                 # Link naar eigen huwelijken (FAMS)
