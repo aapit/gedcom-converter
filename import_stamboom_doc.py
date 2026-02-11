@@ -65,6 +65,10 @@ class Marriage:
         self.marriage_place = None
         self.spouse_name = ""
         self.spouse_info = ""
+        self.spouse_birth_date = None
+        self.spouse_birth_place = None
+        self.spouse_death_date = None
+        self.spouse_death_place = None
         self.witnesses = []
 
 
@@ -276,15 +280,24 @@ class StamboomParser:
 
         # Parse geboren (*)
         if line.startswith("*"):
-            # Negeer geboren data in kinderen sectie of partner info sectie
-            if not self.in_children_section and not self.parsing_spouse_info:
-                rest = line[1:].strip()
-                # Split op komma als er een doop symbool in staat
-                if "," in rest and ("△" in rest or "Δ" in rest):
-                    parts = rest.split(",")
-                    place, date = self.parse_place_date(parts[0])
-                else:
-                    place, date = self.parse_place_date(rest)
+            rest = line[1:].strip()
+            # Split op komma als er een doop symbool in staat
+            if "," in rest and ("△" in rest or "Δ" in rest):
+                parts = rest.split(",")
+                place, date = self.parse_place_date(parts[0])
+            else:
+                place, date = self.parse_place_date(rest)
+
+            # Bepaal waar we deze info opslaan
+            if self.in_children_section:
+                # Negeer - dit is een kind zonder generatie ID
+                pass
+            elif self.parsing_spouse_info and self.current_marriage:
+                # Dit is partner geboorte info
+                self.current_marriage.spouse_birth_place = place
+                self.current_marriage.spouse_birth_date = date
+            else:
+                # Dit is de huidige persoon
                 self.current_person.birth_place = place
                 self.current_person.birth_date = date
 
@@ -309,9 +322,18 @@ class StamboomParser:
 
         # Parse overleden (†)
         elif line.startswith("†"):
-            # Negeer overleden data in kinderen sectie of partner info sectie
-            if not self.in_children_section and not self.parsing_spouse_info:
-                place, date = self.parse_place_date(line[1:].strip())
+            place, date = self.parse_place_date(line[1:].strip())
+
+            # Bepaal waar we deze info opslaan
+            if self.in_children_section:
+                # Negeer - dit is een kind zonder generatie ID
+                pass
+            elif self.parsing_spouse_info and self.current_marriage:
+                # Dit is partner overleden info
+                self.current_marriage.spouse_death_place = place
+                self.current_marriage.spouse_death_date = date
+            else:
+                # Dit is de huidige persoon
                 self.current_person.death_place = place
                 self.current_person.death_date = date
 
@@ -419,6 +441,7 @@ class StamboomParser:
         """Genereer GEDCOM bestand"""
         # Maak ID mapping - gebruik referentienummer als ID
         person_id_map = {}  # generation_id -> @Ixxx@
+        spouse_persons = {}  # spouse_key -> Person object voor partners
         next_id = 1
 
         for gen_id in sorted(self.persons.keys()):
@@ -430,6 +453,28 @@ class StamboomParser:
                 # Fallback naar sequentieel nummer
                 person_id_map[gen_id] = f"@I{next_id}@"
                 next_id += 1
+
+        # Maak personen aan voor partners die geen eigen generatie ID hebben
+        spouse_id_start = 10000  # Start bij 10000 om conflict te vermijden
+        for gen_id, person in self.persons.items():
+            for i, marriage in enumerate(person.marriages):
+                if marriage.spouse_name:
+                    spouse_key = f"{gen_id}_spouse_{i+1}"
+                    # Maak een nieuw Person object voor de partner
+                    spouse_person = Person(spouse_key, None)
+                    spouse_person.name = self.normalize_name(marriage.spouse_name)
+                    spouse_person.birth_date = marriage.spouse_birth_date
+                    spouse_person.birth_place = marriage.spouse_birth_place
+                    spouse_person.death_date = marriage.spouse_death_date
+                    spouse_person.death_place = marriage.spouse_death_place
+                    # Bepaal geslacht (tegenovergestelde van hoofdpersoon)
+                    if person.sex == "M":
+                        spouse_person.sex = "F"
+                    elif person.sex == "F":
+                        spouse_person.sex = "M"
+                    spouse_persons[spouse_key] = spouse_person
+                    person_id_map[spouse_key] = f"@I{spouse_id_start}@"
+                    spouse_id_start += 1
 
         # Maak families - eerst alle families creëren
         families = {}
@@ -446,15 +491,27 @@ class StamboomParser:
                 fam_key = f"{gen_id}_m{i+1}"
                 fam_id = f"@F{family_id}@"
                 family_id += 1
+
+                # Bepaal partner ID
+                spouse_key = f"{gen_id}_spouse_{i+1}"
+                spouse_id = person_id_map.get(spouse_key)
+
                 families[fam_key] = {
                     "id": fam_id,
                     "parent": person_id,
                     "parent_sex": person.sex,
                     "parent_gen_id": gen_id,
+                    "spouse_id": spouse_id,  # Nieuw: partner ID
                     "children": [],
                     "marriage": marriage,
                 }
                 person_families[gen_id].append(fam_id)
+
+                # Voeg ook FAMS voor de partner toe
+                if spouse_key in person_id_map:
+                    if spouse_key not in person_families:
+                        person_families[spouse_key] = []
+                    person_families[spouse_key].append(fam_id)
 
         # Stap 2: Voeg kinderen toe aan families
         for gen_id in sorted(self.persons.keys()):
@@ -485,9 +542,10 @@ class StamboomParser:
             f.write("2 VERS 5.5.1\n")
             f.write("1 CHAR UTF-8\n")
 
-            # Individuen
-            for gen_id in sorted(self.persons.keys()):
-                person = self.persons[gen_id]
+            # Individuen - eerst reguliere personen, dan partners
+            all_persons = list(self.persons.items()) + list(spouse_persons.items())
+
+            for gen_id, person in all_persons:
                 person_id = person_id_map[gen_id]
 
                 f.write(f"0 {person_id} INDI\n")
@@ -579,13 +637,22 @@ class StamboomParser:
                 if "parent" in family:
                     parent_id = family["parent"]
                     parent_sex = family.get("parent_sex")
+                    spouse_id = family.get("spouse_id")
+
+                    # Schrijf HUSB en WIFE op basis van geslacht
                     if parent_sex == "M":
                         f.write(f"1 HUSB {parent_id}\n")
+                        if spouse_id:
+                            f.write(f"1 WIFE {spouse_id}\n")
                     elif parent_sex == "F":
                         f.write(f"1 WIFE {parent_id}\n")
+                        if spouse_id:
+                            f.write(f"1 HUSB {spouse_id}\n")
                     else:
                         # Als geslacht onbekend, probeer het alsnog
                         f.write(f"1 HUSB {parent_id}\n")
+                        if spouse_id:
+                            f.write(f"1 WIFE {spouse_id}\n")
                 elif fam_key in self.persons:
                     # Dit is een familie gemaakt voor kinderen (ouders)
                     parent = self.persons[fam_key]
@@ -607,8 +674,7 @@ class StamboomParser:
                             f.write(f"2 DATE {marriage.marriage_date}\n")
                         if marriage.marriage_place:
                             f.write(f"2 PLAC {marriage.marriage_place}\n")
-                    if marriage.spouse_name:
-                        f.write(f"1 NOTE Partner: {marriage.spouse_name}\n")
+                    # Partner NOTE niet meer nodig - partner is nu een WIFE/HUSB record
 
             # Trailer
             f.write("0 TRLR\n")
