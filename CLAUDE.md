@@ -34,8 +34,54 @@ python3 import_stamboom_doc.py
 
 Install dependencies:
 ```bash
-pip install pandas openpyxl
+pip install pandas openpyxl pytest
 ```
+
+## Testing
+
+### Unit Tests
+
+The stamboom converter has comprehensive unit test coverage (37 tests) in `test_stamboom_parser.py`.
+
+**Running tests:**
+```bash
+# Activate virtual environment
+source venv/bin/activate
+
+# Run all tests
+pytest test_stamboom_parser.py -v
+
+# Run specific test class
+pytest test_stamboom_parser.py::TestParseSpouseParents -v
+
+# Run with coverage report
+pytest test_stamboom_parser.py --cov=import_stamboom_doc --cov-report=html
+```
+
+**Test coverage includes:**
+- `parse_spouse_parents()` - Parent extraction with profession/address filtering
+- `parse_place_date()` - Various date and place formats
+- `parse_date()` - Date format variations (DD-MM-YYYY, ±YYYY, etc.)
+- `normalize_name()` - ALL-CAPS to Title Case, Dutch prepositions
+- `parse_person_header()` - Generation IDs with/without trailing period
+- Integration tests - Birth/death/marriage on same line
+- Class structures - Person and Marriage initialization
+
+**IMPORTANT: Always run tests after making changes to import_stamboom_doc.py**
+
+```bash
+# Quick test before committing
+source venv/bin/activate && pytest test_stamboom_parser.py -v
+```
+
+**Adding new tests:**
+When adding new parsing features:
+1. Add corresponding unit tests to `test_stamboom_parser.py`
+2. Test both normal cases and edge cases
+3. Use descriptive test names: `test_<what>_<expected_result>`
+4. Run full test suite to prevent regressions
+
+See `test_README.md` for detailed test documentation.
 
 ## Architecture
 
