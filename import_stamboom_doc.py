@@ -507,7 +507,7 @@ class StamboomParser:
                 self.current_child = None  # Reset current child
             elif re.match(r"^[A-Z]", line) and not any(
                 keyword in line.lower()
-                for keyword in ["arch.", "beers", "cuijk", "wanroij", "ibid", "error", "uit", "hieruit", "generatie", "tr.", "otr."]
+                for keyword in ["arch.", "beers", "cuijk", "wanroij", "ibid", "error", "uit", "hieruit", "generatie", "nageslacht", "tr.", "otr."]
             ):
                 # Dit is een kind zonder generatie ID
                 # Maak een nieuw kind persoon aan
