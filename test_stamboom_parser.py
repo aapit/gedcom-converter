@@ -431,5 +431,45 @@ class TestPersonClass:
         assert "II.2" in person.children
 
 
+class TestSpouseNameCleaning:
+    """Tests for cleaning spouse names from marriage number markers"""
+
+    def setup_method(self):
+        self.parser = StamboomParser()
+
+    def test_remove_marriage_number_prefix(self):
+        """Test that (1), (2), etc. are removed from spouse names"""
+        text = """III.1 Jan THOMASSEN [128]
+Tr. RK Beers 11-05-1727 met
+(1) Jenneken EBBEN [129]
+"""
+        self.parser.parse(text)
+        
+        assert "III.1" in self.parser.persons
+        person = self.parser.persons["III.1"]
+        
+        # Should have one marriage
+        assert len(person.marriages) == 1
+        
+        # Spouse name should NOT have (1) prefix
+        assert person.marriages[0].spouse_name == "Jenneken Ebben"
+        assert not person.marriages[0].spouse_name.startswith("(1)")
+
+    def test_remove_marriage_number_and_reference(self):
+        """Test that both (1) and [xxx] are removed"""
+        text = """III.1 Jan THOMASSEN [128]
+Tr. RK Beers 11-05-1727 met
+(2) Maria JANSEN [256]
+"""
+        self.parser.parse(text)
+        
+        person = self.parser.persons["III.1"]
+        
+        # Spouse name should have neither (2) nor [256]
+        assert person.marriages[0].spouse_name == "Maria Jansen"
+        assert "(2)" not in person.marriages[0].spouse_name
+        assert "[256]" not in person.marriages[0].spouse_name
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

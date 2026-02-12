@@ -485,9 +485,10 @@ class StamboomParser:
                 keyword in line.lower()
                 for keyword in ["hieruit:", "uit (", "arch.", "beers", "cuijk", "wanroij", "schepenbanken"]
             ):
-                # Verwijder referentie nummer [xxx] uit partner naam
-                # Bijvoorbeeld: "Maria ABEN [33]" -> "Maria ABEN"
-                clean_name = re.sub(r'\s*\[\d+\]\s*$', '', line)
+                # Verwijder referentie nummer [xxx] en huwelijksnummer (1), (2), etc. uit partner naam
+                # Bijvoorbeeld: "(1) Maria ABEN [33]" -> "Maria ABEN"
+                clean_name = re.sub(r'\s*\[\d+\]\s*$', '', line)  # Verwijder [xxx] aan het einde
+                clean_name = re.sub(r'^\s*\(\d+\)\s*', '', clean_name)  # Verwijder (1) aan het begin
                 self.current_marriage.spouse_name = self.normalize_name(clean_name)
                 self.current_marriage.spouse_info = line
 
