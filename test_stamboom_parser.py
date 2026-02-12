@@ -338,6 +338,55 @@ class TestMarriageClass:
         assert marriage.spouse_mother_name == "Cornelia Francisca Xaveria Story"
 
 
+class TestChildrenWithMarriages:
+    """Tests for parsing children who themselves have marriages"""
+
+    def setup_method(self):
+        self.parser = StamboomParser()
+
+    def test_child_marriage_spouse_not_parsed_as_child(self):
+        """Test that spouse names of children are not parsed as children themselves"""
+        # Simulate parsing a parent and their children where one child gets married
+        text = """V.1. Johannes THOMASSEN, zn. van IV.1 [32]
+* Heeswijk 1757, † Cuyk 08-10-1829
+Tr. RK Cuyk 11-05-1794 met
+Maria ABEN [33]
+Hieruit:
+Thomas THOMASSEN
+Δ RK Cuyk 04-06-1795
+Anna Maria THOMASSEN
+* Cuijk 28-05-1799, † Cuijk 15-12-1847
+Tr. Cuijk 01-05-1829 met
+Franciscus VAN LOTTUM
+* Cuijk 28-05-1799
+Gertruda THOMASSEN
+* Cuijk 10-12-1812
+Tr. Cuijk 07-05-1849 met
+Joannes TIESSEN
+* Cuijk 22-12-1810
+"""
+        self.parser.parse(text)
+
+        # V.1 should exist
+        assert "V.1" in self.parser.persons
+        person = self.parser.persons["V.1"]
+
+        # Should have exactly 3 named children (Thomas, Anna Maria, Gertruda)
+        # The spouses (Franciscus VAN LOTTUM, Joannes TIESSEN) should NOT be counted as children
+        unnamed_children_count = len([c for c in self.parser.unnamed_children if c.parent_ref == "V.1"])
+        assert unnamed_children_count == 3, f"Expected 3 unnamed children, got {unnamed_children_count}"
+
+        # Verify the child names
+        child_names = [c.name for c in self.parser.unnamed_children if c.parent_ref == "V.1"]
+        assert "Thomas Thomassen" in child_names
+        assert "Anna Maria Thomassen" in child_names
+        assert "Gertruda Thomassen" in child_names
+
+        # Spouse names should NOT be in children
+        assert "Franciscus Van Lottum" not in child_names
+        assert "Joannes Tiessen" not in child_names
+
+
 class TestPersonClass:
     """Tests for Person class structure"""
 

@@ -86,6 +86,7 @@ class StamboomParser:
         self.parsing_spouse_info = False  # True wanneer we partner info aan het parsen zijn
         self.unnamed_children = []  # Kinderen zonder generatie ID
         self.current_child = None  # Huidig kind zonder generatie ID
+        self.child_marriage_context = False  # True wanneer we een huwelijk van een kind aan het parsen zijn
 
     def normalize_name(self, name):
         """Converteer all-caps namen naar title case"""
@@ -311,6 +312,7 @@ class StamboomParser:
             self.parsing_spouse_info = False
             self.current_marriage_num = 0
             self.current_child = None
+            self.child_marriage_context = False
             return
 
         if not self.current_person:
@@ -442,10 +444,16 @@ class StamboomParser:
 
         # Parse huwelijk
         elif (re.search(r"^(Otr?\.|Tr\.)", line) or
-              re.search(r"\b(otr|ot)\.\s*/?\s*(tr\.?)", line, re.IGNORECASE)) and \
-             not self.in_children_section:
-            # Alleen als het aan het begin van de regel staat of een duidelijk patroon heeft
-            # en we niet in de kinderen sectie zitten
+              re.search(r"\b(otr|ot)\.\s*/?\s*(tr\.?)", line, re.IGNORECASE)):
+            # Als we in de kinderen sectie zitten, is dit een huwelijk van een kind
+            if self.in_children_section:
+                # Markeer dat we nu een huwelijk van een kind parsen
+                # De volgende regels (partner naam, etc.) moeten worden genegeerd
+                self.child_marriage_context = True
+                self.current_child = None  # Reset huidige kind
+                return
+
+            # Anders is dit een huwelijk van de huidige persoon
             self.current_marriage_num += 1
             self.current_marriage = Marriage()
             self.current_marriage.marriage_num = self.current_marriage_num
@@ -491,6 +499,7 @@ class StamboomParser:
         elif line.startswith("Hieruit:") or re.match(r"^Uit\s+\(\d+\)", line):
             self.in_children_section = True
             self.parsing_spouse_info = False  # Niet meer in partner info sectie
+            self.child_marriage_context = False  # Reset huwelijk context
             # Extract huwelijksnummer
             marriage_num_match = re.search(r"Uit\s+\((\d+)\)", line)
             if marriage_num_match:
@@ -505,10 +514,44 @@ class StamboomParser:
                 child_ref = child_match.group(1)
                 self.current_person.children.append(child_ref)
                 self.current_child = None  # Reset current child
+                self.child_marriage_context = False  # Reset huwelijk context
             elif re.match(r"^[A-Z]", line) and not any(
                 keyword in line.lower()
                 for keyword in ["arch.", "beers", "cuijk", "wanroij", "ibid", "error", "uit", "hieruit", "generatie", "nageslacht", "tr.", "otr."]
             ):
+                # Als we in een huwelijk context van een kind zitten, check of dit een nieuw kind is
+                # of de partner naam
+                if self.child_marriage_context:
+                    # Check of dit mogelijk een nieuw kind is door te kijken naar de achternaam
+                    # Als de regel de familie achternaam bevat (van de huidige persoon),
+                    # dan is het waarschijnlijk een kind, niet een partner
+                    parent_surname = None
+                    if self.current_person and self.current_person.name:
+                        # Extract achternaam van de huidige persoon
+                        # Bijvoorbeeld: "Jo(h)annes (Jan) THOMASSEN" -> "THOMASSEN"
+                        # Of genormaliseerd: "Johannes (Jan) Thomassen" -> "Thomassen"
+                        name_parts = self.current_person.name.split()
+                        if name_parts:
+                            # De achternaam is meestal het laatste woord
+                            parent_surname = name_parts[-1].upper()
+
+                    # Check of deze regel de familie achternaam bevat
+                    is_likely_child = False
+                    if parent_surname and parent_surname in line.upper():
+                        is_likely_child = True
+                    elif "nageslacht" in line.lower():
+                        # Dit is een nieuwe sectie, stop met kinderen parsen
+                        self.in_children_section = False
+                        self.child_marriage_context = False
+                        return
+
+                    # Als het waarschijnlijk geen kind is, negeer de regel (het is de partner)
+                    if not is_likely_child:
+                        return
+
+                    # Anders, val door en parse het als een kind
+                    self.child_marriage_context = False  # Reset voor nieuw kind
+
                 # Dit is een kind zonder generatie ID
                 # Maak een nieuw kind persoon aan
                 child_name = line.strip()
@@ -525,6 +568,7 @@ class StamboomParser:
 
                 self.unnamed_children.append(child)
                 self.current_child = child
+                self.child_marriage_context = False  # Reset huwelijk context voor nieuw kind
 
         # Anders: notitie
         else:
