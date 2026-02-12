@@ -211,15 +211,17 @@ class StamboomParser:
         """Parse de header regel van een persoon"""
         # Patroon: "III.1 Jan Thomassen (Joannes Thomae) (van den BRUNCKOM), zn. van II.1 [128]"
         # Of: "I.1 Joannes Thomissen [512]"
+        # Of: "IV. 1. Thomas Jans" (met spatie tussen IV. en 1.)
 
         # Extract generation ID
-        # Patroon kan zijn "VII.5 " of "VII.5. " (met optionele punt na cijfer)
-        gen_match = re.match(r"^([IVX]+\.\d+)\.?\s+(.+)$", line)
+        # Patroon kan zijn "VII.5 ", "VII.5. " of "VII. 5. " (met optionele spatie en punt)
+        gen_match = re.match(r"^([IVX]+)\.\s*(\d+)\.?\s+(.+)$", line)
         if not gen_match:
             return None
 
-        gen_id = gen_match.group(1)
-        rest = gen_match.group(2)
+        # Generatie ID zonder spaties: "IV.1" in plaats van "IV. 1"
+        gen_id = f"{gen_match.group(1)}.{gen_match.group(2)}"
+        rest = gen_match.group(3)
 
         # Extract reference number [xxx]
         ref_match = re.search(r"\[(\d+)\]", rest)
@@ -299,8 +301,8 @@ class StamboomParser:
         if not line:
             return
 
-        # Check of dit een nieuwe persoon is (met optionele punt na cijfer: "VII.5." of "VII.5 ")
-        if re.match(r"^[IVX]+\.\d+\.?\s+", line):
+        # Check of dit een nieuwe persoon is (met optionele punt en spatie: "VII.5.", "VII.5 " of "VII. 5. ")
+        if re.match(r"^[IVX]+\.\s*\d+\.?\s+", line):
             # Sla vorige persoon op
             if self.current_person:
                 self.persons[self.current_person.generation_id] = self.current_person

@@ -222,6 +222,18 @@ class TestParsePersonHeader:
         person = self.parser.parse_person_header("Not a valid header")
         assert person is None
 
+    def test_generation_id_with_space(self):
+        """Test generation ID with space like 'IV. 1.' instead of 'IV.1'"""
+        line = "IV. 1. Thomas Jans / Janse /Jansen, zn. van III.1 [64]"
+        person = self.parser.parse_person_header(line)
+
+        assert person is not None
+        assert person.generation_id == "IV.1"  # Space should be removed
+        assert person.name == "Thomas Jans / Janse /Jansen"
+        assert person.ref_num == "64"
+        assert person.parent_ref == "III.1"
+        assert person.sex == "M"
+
 
 class TestBirthDeathSameLineIntegration:
     """Integration tests for birth and death on same line"""
