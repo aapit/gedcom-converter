@@ -270,11 +270,23 @@ class StamboomParser:
             father_name = parent_match.group(1).strip()
             mother_name = parent_match.group(2).strip()
 
-            # Verwijder eventuele extra info na de moeder naam (zoals beroep, religie, etc.)
+            # Verwijder alles na een punt gevolgd door een hoofdletter of cijfer (nieuwe zin/info)
+            # Bijvoorbeeld: "Anna Catharina Teeuwen. Winkelierster. Molenstraat 84"
+            period_match = re.search(r'\.\s+[A-Z0-9]', mother_name)
+            if period_match:
+                mother_name = mother_name[:period_match.start() + 1].strip().rstrip('.')
+
+            period_match = re.search(r'\.\s+[A-Z0-9]', father_name)
+            if period_match:
+                father_name = father_name[:period_match.start() + 1].strip().rstrip('.')
+
+            # Verwijder eventuele extra info na de naam (zoals beroep, religie, etc.)
             # Stop bij woorden die indiceren dat het extra info is
-            for stop_word in [" bibliothecaris", " bakker", " boer", " smid", ". rk", ". ng", ". herv"]:
+            for stop_word in [" bibliothecaris", " winkelierster", " bakker", " boer", " smid", ". rk", ". ng", ". herv"]:
                 if stop_word in mother_name.lower():
                     mother_name = mother_name[:mother_name.lower().index(stop_word)].strip()
+                if stop_word in father_name.lower():
+                    father_name = father_name[:father_name.lower().index(stop_word)].strip()
 
             return father_name, mother_name
 
