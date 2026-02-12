@@ -553,7 +553,15 @@ class StamboomParser:
         # Maak ID mapping - gebruik referentienummer als ID
         person_id_map = {}  # generation_id -> @Ixxx@
         spouse_persons = {}  # spouse_key -> Person object voor partners
-        next_id = 1
+
+        # Bepaal hoogste ref_num om ID conflicten te voorkomen
+        max_ref_num = 0
+        for person in self.persons.values():
+            if person.ref_num:
+                max_ref_num = max(max_ref_num, int(person.ref_num))
+
+        # Start next_id na de hoogste ref_num om conflicten te vermijden
+        next_id = max_ref_num + 1
 
         for gen_id in sorted(self.persons.keys()):
             person = self.persons[gen_id]

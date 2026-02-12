@@ -262,6 +262,58 @@ class TestBirthDeathSameLineIntegration:
         assert person.marriages[0].marriage_place == "'s-Hertogenbosch"
 
 
+class TestGedcomGeneration:
+    """Tests for GEDCOM generation and ID assignment"""
+
+    def test_no_duplicate_ids_with_ref_nums(self):
+        """Test that persons without ref_num don't get duplicate IDs"""
+        parser = StamboomParser()
+
+        # Create persons with ref_num (like V.1 with [32])
+        person1 = Person("V.1", "32")
+        person1.name = "Jo(h)annes (Jan) Thomassen"
+        parser.persons["V.1"] = person1
+
+        # Create many persons without ref_num (like IX.5)
+        # This simulates having 32+ persons without ref_num
+        for i in range(1, 35):
+            person = Person(f"IX.{i}", None)
+            person.name = f"Test Person {i}"
+            parser.persons[f"IX.{i}"] = person
+
+        # Generate GEDCOM to a temporary string
+        import tempfile
+        import os
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.ged') as f:
+            temp_path = f.name
+
+        try:
+            parser.generate_gedcom(temp_path)
+
+            # Read the generated GEDCOM and check for duplicate IDs
+            with open(temp_path, 'r') as f:
+                content = f.read()
+
+            # Extract all INDI IDs
+            import re
+            indi_ids = re.findall(r'0 (@I\d+@) INDI', content)
+
+            # Check for duplicates
+            unique_ids = set(indi_ids)
+            assert len(indi_ids) == len(unique_ids), f"Found duplicate IDs: {len(indi_ids)} total, {len(unique_ids)} unique"
+
+            # Verify person with ref_num 32 has ID @I32@
+            assert '@I32@' in indi_ids, "Person with ref_num [32] should have ID @I32@"
+
+            # Verify no other person has @I32@
+            assert indi_ids.count('@I32@') == 1, "Only one person should have ID @I32@"
+
+        finally:
+            # Clean up temp file
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+
+
 class TestMarriageClass:
     """Tests for Marriage class structure"""
 
