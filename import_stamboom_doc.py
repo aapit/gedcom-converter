@@ -27,6 +27,7 @@ Vereisten:
 
 import re
 import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -142,7 +143,7 @@ class StamboomParser:
         return " ".join(normalized_words)
 
     def read_doc_file(self, doc_path):
-        """Lees .doc bestand en converteer naar tekst met textutil (macOS)"""
+        """Lees .doc of .docx bestand en converteer naar tekst met textutil (macOS)"""
         result = subprocess.run(
             ["textutil", "-convert", "txt", doc_path, "-stdout"],
             capture_output=True,
@@ -977,44 +978,110 @@ class StamboomParser:
             f.write("0 TRLR\n")
 
 
+def process_file(doc_file, output_file=None, verbose=True):
+    """Process een enkel Word document naar GEDCOM"""
+    # Bepaal output bestandsnaam
+    if output_file is None:
+        # Converteer bijv. "THOMASSEN 16 David.doc" naar "THOMASSEN_16_David.ged"
+        doc_path = Path(doc_file)
+        output_name = doc_path.stem.replace(" ", "_") + ".ged"
+        output_file = output_name
+
+    if verbose:
+        print(f"\n{'='*60}")
+        print(f"Verwerken: {doc_file}")
+        print(f"Output: {output_file}")
+        print('='*60)
+
+    parser = StamboomParser()
+
+    # Lees document
+    try:
+        text = parser.read_doc_file(doc_file)
+        if verbose:
+            print(f"Document gelezen: {len(text)} karakters")
+    except Exception as e:
+        print(f"❌ Fout bij lezen van {doc_file}: {e}")
+        return False
+
+    # Parse document
+    if verbose:
+        print("Parsen van stamboom...")
+    parser.parse(text)
+
+    if verbose:
+        print(f"Gevonden: {len(parser.persons)} personen")
+
+        # Toon eerste paar personen
+        print("\nVoorbeeld personen:")
+        for i, (gen_id, person) in enumerate(list(parser.persons.items())[:3]):
+            print(f"  {gen_id}: {person.name}")
+            if person.birth_date or person.birth_place:
+                print(f"    Geboren: {person.birth_date or '?'} in {person.birth_place or '?'}")
+            if person.marriages:
+                print(f"    Huwelijken: {len(person.marriages)}")
+            if person.children:
+                print(f"    Kinderen: {len(person.children)} (refs: {', '.join(person.children[:3])})")
+
+    # Genereer GEDCOM
+    if verbose:
+        print(f"\nGenereren van {output_file}...")
+    parser.generate_gedcom(output_file)
+
+    if verbose:
+        print(f"✓ Klaar! GEDCOM bestand gegenereerd: {output_file}")
+        print(f"  - {len(parser.persons)} personen")
+        print(f"  - Geschatte families: {sum(len(p.marriages) for p in parser.persons.values())}")
+
+    return True
+
+
 def main():
     print("Stamboom Word Document naar GEDCOM Converter")
     print("=" * 60)
 
-    # Input en output files
-    doc_file = "THOMASSEN 16 David.doc"
-    output_file = "stamboom.ged"
+    # Check command line argumenten
+    if len(sys.argv) > 1:
+        # Specifiek bestand verwerken
+        doc_file = sys.argv[1]
+        output_file = sys.argv[2] if len(sys.argv) > 2 else None
 
-    print(f"\nLezen van {doc_file}...")
-    parser = StamboomParser()
+        if not Path(doc_file).exists():
+            print(f"❌ Bestand niet gevonden: {doc_file}")
+            return
 
-    # Lees document
-    text = parser.read_doc_file(doc_file)
-    print(f"Document gelezen: {len(text)} karakters")
+        process_file(doc_file, output_file, verbose=True)
+    else:
+        # Verwerk alle .doc bestanden in stambomen directory
+        stambomen_dir = Path("stambomen")
 
-    # Parse document
-    print("\nParsen van stamboom...")
-    parser.parse(text)
-    print(f"Gevonden: {len(parser.persons)} personen")
+        if not stambomen_dir.exists():
+            # Fallback naar oude gedrag
+            print("\nGeen stambomen directory gevonden. Verwerk standaard bestand...")
+            process_file("THOMASSEN 16 David.doc", "stamboom.ged", verbose=True)
+            return
 
-    # Toon eerste paar personen
-    print("\nVoorbeeld personen:")
-    for i, (gen_id, person) in enumerate(list(parser.persons.items())[:3]):
-        print(f"\n  {gen_id}: {person.name}")
-        if person.birth_date or person.birth_place:
-            print(f"    Geboren: {person.birth_date or '?'} in {person.birth_place or '?'}")
-        if person.marriages:
-            print(f"    Huwelijken: {len(person.marriages)}")
-        if person.children:
-            print(f"    Kinderen: {len(person.children)} (refs: {', '.join(person.children[:3])})")
+        # Vind alle .doc en .docx bestanden
+        doc_files = list(stambomen_dir.glob("*.doc")) + list(stambomen_dir.glob("*.docx"))
 
-    # Genereer GEDCOM
-    print(f"\nGenereren van {output_file}...")
-    parser.generate_gedcom(output_file)
+        if not doc_files:
+            print("❌ Geen .doc bestanden gevonden in stambomen directory")
+            return
 
-    print(f"\n✓ Klaar! GEDCOM bestand gegenereerd: {output_file}")
-    print(f"  - {len(parser.persons)} personen")
-    print(f"  - Geschatte families: {sum(len(p.marriages) for p in parser.persons.values())}")
+        print(f"\nGevonden {len(doc_files)} stamboom document(en):")
+        for doc_file in doc_files:
+            print(f"  - {doc_file.name}")
+
+        print(f"\nVerwerken van {len(doc_files)} bestand(en)...\n")
+
+        success_count = 0
+        for doc_file in doc_files:
+            if process_file(str(doc_file), verbose=True):
+                success_count += 1
+
+        print(f"\n{'='*60}")
+        print(f"✓ Klaar! {success_count}/{len(doc_files)} bestanden succesvol verwerkt")
+        print(f"{'='*60}")
 
 
 if __name__ == "__main__":

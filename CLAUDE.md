@@ -21,27 +21,48 @@ python3 import_kwartierstaat.py
 # Output: kwartierstaat.ged
 
 # Run stamboom converter (macOS only - uses textutil)
+# Process all .doc/.docx files in stambomen/ directory
 python3 import_stamboom_doc.py
-# Input: THOMASSEN 16 David.doc
-# Output: stamboom.ged
+# Outputs: One .ged file per input (e.g., THOMASSEN_16_David.ged)
+
+# Process a specific file
+python3 import_stamboom_doc.py stambomen/THOMASSEN\ 16\ David.doc
+# Output: THOMASSEN_16_David.ged
+
+# Specify custom output filename
+python3 import_stamboom_doc.py stambomen/THOMASSEN\ 16\ David.doc custom_output.ged
 ```
 
 ## Dependencies
 
 - Python 3.6+
 - pandas and openpyxl (for Excel parsing - kwartierstaat only)
-- macOS textutil command (for .doc conversion - stamboom only)
+- macOS textutil command (for .doc/.docx conversion - stamboom only)
 
 Install dependencies:
 ```bash
 pip install pandas openpyxl pytest
 ```
 
+## Directory Structure
+
+```
+.
+├── stambomen/              # Directory with Word documents (.doc/.docx)
+│   ├── JONGE DE 3 X.doc
+│   ├── RUTJES 9.docx
+│   ├── THOMASSEN 16 David.doc
+│   └── WETELING 1 Philippus.doc
+├── import_stamboom_doc.py  # Stamboom converter
+├── import_kwartierstaat.py # Kwartierstaat converter
+└── test_stamboom_parser.py # Unit tests
+```
+
 ## Testing
 
 ### Unit Tests
 
-The stamboom converter has comprehensive unit test coverage (37 tests) in `test_stamboom_parser.py`.
+The stamboom converter has comprehensive unit test coverage (42 tests) in `test_stamboom_parser.py`.
 
 **Running tests:**
 ```bash
