@@ -473,3 +473,62 @@ Tr. RK Beers 11-05-1727 met
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestURLFiltering:
+    """Tests for filtering URLs from being parsed as names"""
+
+    def setup_method(self):
+        self.parser = StamboomParser()
+
+    def test_url_after_marriage_not_parsed_as_spouse(self):
+        """Test that URLs after marriage 'met' are not parsed as spouse names"""
+        text = """III.1 Jan RUTJES [128]
+Tr. RK Zyfflich 08-05-1770 met
+http://members.multimania.nl/fkroesarts/huwelijken_zyfflich_1745-1802.htm
+Theodora VOS
+"""
+        self.parser.parse(text)
+        
+        assert "III.1" in self.parser.persons
+        person = self.parser.persons["III.1"]
+        
+        # Should have one marriage
+        assert len(person.marriages) == 1
+        
+        # Spouse should be Theodora VOS, not the URL
+        assert person.marriages[0].spouse_name == "Theodora Vos"
+        assert "multimania" not in person.marriages[0].spouse_name.lower()
+
+    def test_url_with_www_filtered(self):
+        """Test that URLs starting with www. are filtered"""
+        text = """III.1 Jan RUTJES [128]
+Tr. RK Zyfflich 08-05-1770 met
+www.example.com/genealogy
+Maria JANSSEN
+"""
+        self.parser.parse(text)
+        
+        person = self.parser.persons["III.1"]
+        
+        # Spouse should be Maria, not the URL
+        assert person.marriages[0].spouse_name == "Maria Janssen"
+        assert "example.com" not in person.marriages[0].spouse_name.lower()
+
+    def test_long_text_not_parsed_as_child(self):
+        """Test that long descriptive text is not parsed as child name"""
+        text = """III.1 Jan RUTJES [128]
+Tr. met Maria JANSSEN
+Hieruit:
+Zo'n 200 brieven van hem gericht aan zijn familie bevinden zich in het missiehuis te Nijmegen.
+"""
+        self.parser.parse(text)
+
+        # No unnamed children with "brieven" or "200" in name
+        all_child_names = [c.name for c in self.parser.unnamed_children]
+        assert not any("brieven" in name.lower() for name in all_child_names)
+        assert not any("200" in name for name in all_child_names)
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])
