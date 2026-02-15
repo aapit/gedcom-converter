@@ -480,20 +480,36 @@ class StamboomParser:
         # Parse partner (regel na tr./otr.)
         elif self.current_marriage and not self.current_marriage.spouse_name and \
              not re.match(r"^[IVX]+\.\d+", line) and not self.in_children_section:
-            # Skip URLs
-            if line.startswith("http://") or line.startswith("https://"):
+            # Skip URLs (ook met leading whitespace)
+            if "http://" in line or "https://" in line or "www." in line.lower():
+                return
+
+            # Skip regels die te lang zijn (waarschijnlijk notities, niet namen)
+            if len(line) > 100:
                 return
 
             # Dit zou de partner kunnen zijn
             # Simpele heuristiek: als het geen andere keyword bevat
             if not any(
                 keyword in line.lower()
-                for keyword in ["hieruit:", "uit (", "arch.", "beers", "cuijk", "wanroij", "schepenbanken", "http://", "https://"]
+                for keyword in ["hieruit:", "uit (", "arch.", "beers", "cuijk", "wanroij", "schepenbanken", "http://", "https://", "www."]
             ):
                 # Verwijder referentie nummer [xxx] en huwelijksnummer (1), (2), etc. uit partner naam
                 # Bijvoorbeeld: "(1) Maria ABEN [33]" -> "Maria ABEN"
-                clean_name = re.sub(r'\s*\[\d+\]\s*$', '', line)  # Verwijder [xxx] aan het einde
+                clean_name = line.strip()
+
+                # Verwijder symbolen en extra informatie
+                clean_name = re.sub(r'^[•\-*†△▭]\s*', '', clean_name)  # Verwijder symbolen aan begin
+                clean_name = re.sub(r'\s*\[\d+\]\s*$', '', clean_name)  # Verwijder [xxx] aan het einde
                 clean_name = re.sub(r'^\s*\(\d+\)\s*', '', clean_name)  # Verwijder (1) aan het begin
+
+                # Verwijder alles na geboort/sterfte symbolen (waarschijnlijk data)
+                clean_name = re.split(r'[*†△▭]', clean_name)[0].strip()
+
+                # Skip als de naam te kort is (< 3 chars) of alleen cijfers/symbolen bevat
+                if len(clean_name) < 3 or not re.search(r'[A-Za-z]', clean_name):
+                    return
+
                 self.current_marriage.spouse_name = self.normalize_name(clean_name)
                 self.current_marriage.spouse_info = line
 
@@ -530,8 +546,16 @@ class StamboomParser:
                 self.child_marriage_context = False  # Reset huwelijk context
             elif re.match(r"^[A-Z•]", line) and not any(
                 keyword in line.lower()
-                for keyword in ["arch.", "beers", "cuijk", "wanroij", "ibid", "error", "uit", "hieruit", "generatie", "nageslacht", "tr.", "otr.", "http://", "https://"]
+                for keyword in ["arch.", "beers", "cuijk", "wanroij", "ibid", "error", "uit", "hieruit", "generatie", "nageslacht", "tr.", "otr.", "http://", "https://", "www."]
             ):
+                # Filter notitie-achtige regels (te lang, of beginnen met algemene woorden)
+                # Skip regels die beginnen met algemene woorden (niet namen)
+                if re.match(r"^(Zo'n|De|Het|In|Van|Op|Een|Brieven|Archive|Door|Voor)\s", line):
+                    return
+
+                # Skip regels met cijfers gevolgd door woorden (waarschijnlijk notities)
+                if re.search(r'\d{2,}', line):  # 2+ cijfers achter elkaar
+                    return
                 # Als we in een huwelijk context van een kind zitten, check of dit een nieuw kind is
                 # of de partner naam
                 if self.child_marriage_context:
