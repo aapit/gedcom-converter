@@ -980,12 +980,19 @@ class StamboomParser:
 
 def process_file(doc_file, output_file=None, verbose=True):
     """Process een enkel Word document naar GEDCOM"""
+    # Zorg dat gedcom directory bestaat
+    gedcom_dir = Path("gedcom")
+    gedcom_dir.mkdir(exist_ok=True)
+
     # Bepaal output bestandsnaam
     if output_file is None:
-        # Converteer bijv. "THOMASSEN 16 David.doc" naar "THOMASSEN_16_David.ged"
+        # Converteer bijv. "THOMASSEN 16 David.doc" naar "gedcom/THOMASSEN_16_David.ged"
         doc_path = Path(doc_file)
         output_name = doc_path.stem.replace(" ", "_") + ".ged"
-        output_file = output_name
+        output_file = gedcom_dir / output_name
+    else:
+        # Als een specifieke output file is opgegeven, plaats die ook in gedcom/
+        output_file = gedcom_dir / Path(output_file).name
 
     if verbose:
         print(f"\n{'='*60}")

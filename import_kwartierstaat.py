@@ -6,6 +6,7 @@ Converteer kwartierstaat Excel naar GEDCOM formaat
 import pandas as pd
 import re
 from datetime import datetime
+from pathlib import Path
 
 
 class GedcomGenerator:
@@ -231,10 +232,14 @@ def main():
     print("\nMaken van familierelaties...")
     gedcom.create_families()
 
+    # Zorg dat gedcom directory bestaat
+    gedcom_dir = Path("gedcom")
+    gedcom_dir.mkdir(exist_ok=True)
+
     # Genereer output
-    output_file = "kwartierstaat.ged"
+    output_file = gedcom_dir / "kwartierstaat.ged"
     print(f"\nGenereren van {output_file}...")
-    gedcom.generate_gedcom(output_file)
+    gedcom.generate_gedcom(str(output_file))
 
     print(f"\n✓ Klaar! GEDCOM bestand gegenereerd: {output_file}")
     print(f"  - {len(gedcom.individuals)} personen")
