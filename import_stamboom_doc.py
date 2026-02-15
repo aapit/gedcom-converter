@@ -835,26 +835,47 @@ class StamboomParser:
                     # Zoek het laatste woord buiten haakjes als achternaam
                     # Bijvoorbeeld: "Jan Thomassen (Joannes) (van den Brunckom)" -> achternaam "Thomassen"
                     # Of: "Maria Aben (Abels, Aaben) [33]" -> achternaam "Aben"
+                    # Of: "Agnes Rutjes / Rutjens" -> voornaam "Agnes", achternaam "Rutjes / Rutjens"
 
                     # Verwijder alles binnen haakjes voor achternaam detectie
                     name_without_parens = re.sub(r'\([^)]*\)', '', clean_name).strip()
-                    parts_outside = name_without_parens.split()
 
-                    if len(parts_outside) > 1:
-                        # Het laatste woord buiten haakjes is de achternaam
-                        surname = parts_outside[-1].strip("/()")
-                        # Gebruik originele naam voor voornaam (met haakjes)
-                        # Vind de positie van de achternaam in originele naam
-                        surname_pos = clean_name.rfind(surname)
-                        if surname_pos > 0:
-                            given = clean_name[:surname_pos].strip()
+                    # Check of er een "/" voorkomt in de naam (variant achternamen)
+                    # Bijvoorbeeld: "Agnes Rutjes / Rutjens"
+                    if " / " in name_without_parens:
+                        # Vind de eerste "/" - alles ervoor is voornaam, alles vanaf eerste woord voor "/" is achternaam
+                        parts = name_without_parens.split()
+                        # Vind eerste niet-voornaam woord (meestal na eerste woord)
+                        if len(parts) >= 3:  # Minimaal: voornaam achternaam1 / achternaam2
+                            # Eerste woord is voornaam, rest is achternaam
+                            given = parts[0]
+                            surname = " ".join(parts[1:])
                             f.write(f"1 NAME {given} /{surname}/\n")
                         else:
-                            # Fallback naar eenvoudige split
+                            # Fallback naar oude logica
+                            parts_outside = name_without_parens.split()
+                            surname = parts_outside[-1].strip("/()")
                             given = " ".join(parts_outside[:-1])
                             f.write(f"1 NAME {given} /{surname}/\n")
                     else:
-                        f.write(f"1 NAME {clean_name}\n")
+                        # Normale naam zonder "/" varianten
+                        parts_outside = name_without_parens.split()
+
+                        if len(parts_outside) > 1:
+                            # Het laatste woord buiten haakjes is de achternaam
+                            surname = parts_outside[-1].strip("/()")
+                            # Gebruik originele naam voor voornaam (met haakjes)
+                            # Vind de positie van de achternaam in originele naam
+                            surname_pos = clean_name.rfind(surname)
+                            if surname_pos > 0:
+                                given = clean_name[:surname_pos].strip()
+                                f.write(f"1 NAME {given} /{surname}/\n")
+                            else:
+                                # Fallback naar eenvoudige split
+                                given = " ".join(parts_outside[:-1])
+                                f.write(f"1 NAME {given} /{surname}/\n")
+                        else:
+                            f.write(f"1 NAME {clean_name}\n")
 
                 # Geslacht
                 if person.sex:
