@@ -480,11 +480,15 @@ class StamboomParser:
         # Parse partner (regel na tr./otr.)
         elif self.current_marriage and not self.current_marriage.spouse_name and \
              not re.match(r"^[IVX]+\.\d+", line) and not self.in_children_section:
+            # Skip URLs
+            if line.startswith("http://") or line.startswith("https://"):
+                return
+
             # Dit zou de partner kunnen zijn
             # Simpele heuristiek: als het geen andere keyword bevat
             if not any(
                 keyword in line.lower()
-                for keyword in ["hieruit:", "uit (", "arch.", "beers", "cuijk", "wanroij", "schepenbanken"]
+                for keyword in ["hieruit:", "uit (", "arch.", "beers", "cuijk", "wanroij", "schepenbanken", "http://", "https://"]
             ):
                 # Verwijder referentie nummer [xxx] en huwelijksnummer (1), (2), etc. uit partner naam
                 # Bijvoorbeeld: "(1) Maria ABEN [33]" -> "Maria ABEN"
@@ -511,17 +515,22 @@ class StamboomParser:
 
         # Parse kind
         elif self.in_children_section:
+            # Skip URLs (http://, https://, etc.)
+            if line.startswith("http://") or line.startswith("https://"):
+                return
+
             # Kijk of het een verwijzing naar een kind is
             # "Jan (Joannes) Thomassen, 1703, zie III.1"
+            # Of: "• Agnes RUTJES, 1803, zie V.10" (met bullet point)
             child_match = re.search(r"zie\s+([IVX]+\.\d+)", line)
             if child_match:
                 child_ref = child_match.group(1)
                 self.current_person.children.append(child_ref)
                 self.current_child = None  # Reset current child
                 self.child_marriage_context = False  # Reset huwelijk context
-            elif re.match(r"^[A-Z]", line) and not any(
+            elif re.match(r"^[A-Z•]", line) and not any(
                 keyword in line.lower()
-                for keyword in ["arch.", "beers", "cuijk", "wanroij", "ibid", "error", "uit", "hieruit", "generatie", "nageslacht", "tr.", "otr."]
+                for keyword in ["arch.", "beers", "cuijk", "wanroij", "ibid", "error", "uit", "hieruit", "generatie", "nageslacht", "tr.", "otr.", "http://", "https://"]
             ):
                 # Als we in een huwelijk context van een kind zitten, check of dit een nieuw kind is
                 # of de partner naam
@@ -559,9 +568,17 @@ class StamboomParser:
                 # Dit is een kind zonder generatie ID
                 # Maak een nieuw kind persoon aan
                 child_name = line.strip()
+
+                # Verwijder bullet points
+                child_name = re.sub(r'^[•\-]\s*', '', child_name)
+
                 # Verwijder eventuele trailing punten en datums
                 child_name = re.sub(r",.*$", "", child_name)  # Verwijder alles na komma
                 child_name = re.sub(r"\s*\d{4}.*$", "", child_name)  # Verwijder jaar
+
+                # Skip als dit leeg is
+                if not child_name.strip():
+                    return
 
                 child = Person(f"{self.current_person.generation_id}_child_{len(self.unnamed_children)+1}", None)
                 child.name = self.normalize_name(child_name)
@@ -577,6 +594,9 @@ class StamboomParser:
         # Anders: notitie
         else:
             # Lange beschrijvingen, archiefverwijzingen etc.
+            # Skip URLs
+            if line.startswith("http://") or line.startswith("https://"):
+                return
             if len(line) > 20 and not line.startswith("Error"):
                 self.current_person.notes.append(line)
 
