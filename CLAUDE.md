@@ -73,24 +73,33 @@ pip install pandas openpyxl pytest
 
 ### Unit Tests
 
-The stamboom converter has comprehensive unit test coverage (42 tests) in `test_stamboom_parser.py`.
+Both converters have comprehensive unit test coverage:
+- **Stamboom converter:** 60 tests in `test_stamboom_parser.py`
+- **Kwartierstaat converter:** 8 tests in `test_kwartierstaat.py`
 
 **Running tests:**
 ```bash
 # Activate virtual environment
 source venv/bin/activate
 
-# Run all tests
+# Run all stamboom tests
 pytest test_stamboom_parser.py -v
+
+# Run all kwartierstaat tests
+pytest test_kwartierstaat.py -v
+
+# Run all tests
+pytest test_*.py -v
 
 # Run specific test class
 pytest test_stamboom_parser.py::TestParseSpouseParents -v
 
 # Run with coverage report
 pytest test_stamboom_parser.py --cov=import_stamboom_doc --cov-report=html
+pytest test_kwartierstaat.py --cov=import_kwartierstaat --cov-report=html
 ```
 
-**Test coverage includes:**
+**Stamboom test coverage includes:**
 - `parse_spouse_parents()` - Parent extraction with profession/address filtering
 - `parse_place_date()` - Various date and place formats
 - `parse_date()` - Date format variations (DD-MM-YYYY, ±YYYY, etc.)
@@ -98,12 +107,20 @@ pytest test_stamboom_parser.py --cov=import_stamboom_doc --cov-report=html
 - `parse_person_header()` - Generation IDs with/without trailing period
 - Integration tests - Birth/death/marriage on same line
 - Class structures - Person and Marriage initialization
+- URL filtering, occupation filtering, BS reference removal
+- Marriage patterns (Tr., Otr., Ondertr., Relatie met)
 
-**IMPORTANT: Always run tests after making changes to import_stamboom_doc.py**
+**Kwartierstaat test coverage includes:**
+- `parse_place_year()` - Date/year extraction with uncertainty markers
+- Date format support: `±1850` (circa), `<1800` (before), `>1900` (after)
+- Place extraction with "Geb." prefix removal
+- Edge cases: year-only, place-only, with/without spaces
+
+**IMPORTANT: Always run tests after making changes**
 
 ```bash
 # Quick test before committing
-source venv/bin/activate && pytest test_stamboom_parser.py -v
+source venv/bin/activate && pytest test_*.py -v
 ```
 
 **Adding new tests:**

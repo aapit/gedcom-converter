@@ -78,6 +78,18 @@ class Marriage:
 class StamboomParser:
     """Parser voor stamboom Word document"""
 
+    # Nederlandse beroepen die niet als namen geparsed moeten worden
+    # Deze worden in kleine letter of Title Case gebruikt in documenten
+    DUTCH_OCCUPATIONS = {
+        'timmerman', 'landbouwer', 'bakker', 'smid', 'kleermaker',
+        'schoenmaker', 'machinist', 'dienstbode', 'werkman', 'arbeider',
+        'molenaar', 'wever', 'metselaar', 'schilder', 'timmermansknecht',
+        'koopman', 'veehouder', 'veeboer', 'pachter', 'daglooner',
+        'dagloner', 'spinner', 'naaister', 'dienstmeid', 'knecht',
+        'meid', 'boer', 'landbouwster', 'winkelierster', 'winkelier',
+        'vroedvrouw', 'onderwijzer', 'onderwijzeres', 'schoolmeester'
+    }
+
     def __init__(self):
         self.persons = {}  # generation_id -> Person
         self.current_person = None
@@ -160,17 +172,17 @@ class StamboomParser:
         text = text.strip()
 
         # Probeer verschillende datum patronen
-        # ±1645, 30-06-1703, 23-04 / 07-05-1702, etc.
+        # ±1645, <1800, >1900, 30-06-1703, 23-04 / 07-05-1702, etc.
         patterns = [
             r"(\d{1,2}-\d{1,2}-\d{4})",  # 30-06-1703 (volledige datum eerst!)
             r"(\d{1,2}/\d{1,2}/\d{4})",  # 30/06/1703
-            r"(±?\d{4})",  # ±1645 of 1645
+            r"([<>±]?\s*\d{4})",  # ±1645, <1800, >1900, of 1645
         ]
 
         for pattern in patterns:
             match = re.search(pattern, text)
             if match:
-                return match.group(1)
+                return match.group(1).strip()
 
         return None
 
@@ -273,6 +285,16 @@ class StamboomParser:
         if parent_match:
             father_name = parent_match.group(1).strip()
             mother_name = parent_match.group(2).strip()
+
+            # Verwijder BS (burgerlijke stand) referenties
+            # Bijvoorbeeld: "(BS Bemmel 1923 O 69)" of "(Bs Beuningen 1911 O 45)"
+            # Inclusief eventuele spatie ervoor
+            father_name = re.sub(r'\s*\(BS\s+[^)]+\)', '', father_name, flags=re.IGNORECASE).strip()
+            mother_name = re.sub(r'\s*\(BS\s+[^)]+\)', '', mother_name, flags=re.IGNORECASE).strip()
+
+            # Verwijder trailing punctuatie die kan overblijven
+            father_name = father_name.rstrip('.,;:')
+            mother_name = mother_name.rstrip('.,;:')
 
             # Verwijder alles na een punt gevolgd door een hoofdletter of cijfer (nieuwe zin/info)
             # Bijvoorbeeld: "Anna Catharina Teeuwen. Winkelierster. Molenstraat 84"
@@ -445,8 +467,8 @@ class StamboomParser:
                 self.current_person.burial_place = place
                 self.current_person.burial_date = date
 
-        # Parse huwelijk
-        elif (re.search(r"^(Otr?\.|Tr\.)", line) or
+        # Parse huwelijk of relatie
+        elif (re.search(r"^(Relatie met|Ondertr\.|Otr?\.|Tr\.)", line, re.IGNORECASE) or
               re.search(r"\b(otr|ot)\.\s*/?\s*(tr\.?)", line, re.IGNORECASE)):
             # Als we in de kinderen sectie zitten, is dit een huwelijk van een kind
             if self.in_children_section:
@@ -467,15 +489,28 @@ class StamboomParser:
             # Parse datum en plaats
             # "Otr. / tr. als jongeman  NG Beers 23-04 / 07-05-1702"
             # "Tr. RK Beers 11-05-1727 (gett. ...)"
+            # "Ondertr. / tr. Gendt 01-08/22-08-1697 met Maria VAN BERCK"
             # Extract plaats en datum
             place_date_match = re.search(
-                r"(?:otr?\.?\s*/?\s*tr\.?|tr\.)\s+(?:als\s+\w+\s+)?(.+?)(?:\(|met|$)", line, re.IGNORECASE
+                r"(?:ondertr\.?\s*/?\s*tr\.?|otr?\.?\s*/?\s*tr\.?|tr\.)\s+(?:als\s+\w+\s+)?(.+?)(?:\(|met|$)", line, re.IGNORECASE
             )
             if place_date_match:
                 place_date_str = place_date_match.group(1).strip()
                 place, date = self.parse_place_date(place_date_str)
                 self.current_marriage.marriage_place = place
                 self.current_marriage.marriage_date = date
+
+            # Check of partner naam op dezelfde regel staat (na "met")
+            # Bijvoorbeeld: "Ondertr. / tr. Gendt 01-08/22-08-1697 met Maria VAN BERCK [289]"
+            spouse_inline_match = re.search(r'\bmet\s+(.+?)(?:\[|\(|$)', line, re.IGNORECASE)
+            if spouse_inline_match:
+                spouse_name = spouse_inline_match.group(1).strip()
+                # Verwijder referentie nummers en extra spaties
+                spouse_name = re.sub(r'\s*\[\d+\]\s*$', '', spouse_name)
+                spouse_name = re.sub(r'\s*\(\d+\)\s*$', '', spouse_name)
+                if spouse_name and len(spouse_name) > 2:
+                    self.current_marriage.spouse_name = self.normalize_name(spouse_name)
+                    self.current_marriage.spouse_info = spouse_name
 
         # Parse partner (regel na tr./otr.)
         elif self.current_marriage and not self.current_marriage.spouse_name and \
@@ -555,6 +590,19 @@ class StamboomParser:
 
                 # Skip regels met cijfers gevolgd door woorden (waarschijnlijk notities)
                 if re.search(r'\d{2,}', line):  # 2+ cijfers achter elkaar
+                    return
+
+                # Skip Nederlandse beroepen (occupations)
+                # Bijvoorbeeld: "Timmerman", "timmerman", "Timmerman (1938)", "landbouwer."
+                line_lower = line.strip().lower()
+                # Verwijder jaar in haakjes voor de check
+                line_clean = re.sub(r'\s*\(\d{4}\)\s*$', '', line_lower).strip()
+                # Verwijder bullet points
+                line_clean = re.sub(r'^[•\-]\s*', '', line_clean).strip()
+                # Verwijder trailing punctuatie (punt, komma, etc.)
+                line_clean = line_clean.rstrip('.,;:')
+
+                if line_clean in self.DUTCH_OCCUPATIONS:
                     return
                 # Als we in een huwelijk context van een kind zitten, check of dit een nieuw kind is
                 # of de partner naam
@@ -884,13 +932,31 @@ class StamboomParser:
                     # Verwijder alles binnen haakjes voor achternaam detectie
                     name_without_parens = re.sub(r'\([^)]*\)', '', clean_name).strip()
 
-                    # Check of er een "/" voorkomt in de naam (variant achternamen)
-                    # Bijvoorbeeld: "Agnes Rutjes / Rutjens"
+                    # Check of er een "/" voorkomt in de naam (variant achternamen of voornamen)
+                    # Bijvoorbeeld: "Agnes Rutjes / Rutjens" (achternaam variant)
+                    # Of: "Walravius / Walramus van Benthum" (voornaam variant + achternaam)
                     if " / " in name_without_parens:
-                        # Vind de eerste "/" - alles ervoor is voornaam, alles vanaf eerste woord voor "/" is achternaam
                         parts = name_without_parens.split()
-                        # Vind eerste niet-voornaam woord (meestal na eerste woord)
-                        if len(parts) >= 3:  # Minimaal: voornaam achternaam1 / achternaam2
+
+                        # Check of er een Nederlands tussenvoegsel voorkomt (van, de, den, etc.)
+                        # Dit duidt op de start van een achternaam
+                        prepositions = ['van', 'de', 'den', 'der', 'van den', 'van de', 'van der', 'ter', 'te', "'t"]
+                        surname_start_idx = None
+
+                        for i, word in enumerate(parts):
+                            if word.lower() in prepositions:
+                                surname_start_idx = i
+                                break
+
+                        if surname_start_idx is not None:
+                            # We hebben een tussenvoegsel gevonden - alles vanaf daar is achternaam
+                            given_parts = parts[:surname_start_idx]
+                            surname_parts = parts[surname_start_idx:]
+                            given = " ".join(given_parts)
+                            surname = " ".join(surname_parts)
+                            f.write(f"1 NAME {given} /{surname}/\n")
+                        elif len(parts) >= 3:
+                            # Geen tussenvoegsel, dus slash is achternaam variant
                             # Eerste woord is voornaam, rest is achternaam
                             given = parts[0]
                             surname = " ".join(parts[1:])

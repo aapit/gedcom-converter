@@ -129,10 +129,30 @@ class TestParseDate:
         date = self.parser.parse_date("±1675")
         assert date == "±1675"
 
+    def test_before_year(self):
+        """Test parsing year with < (before) symbol"""
+        date = self.parser.parse_date("<1800")
+        assert date == "<1800"
+
+    def test_after_year(self):
+        """Test parsing year with > (after) symbol"""
+        date = self.parser.parse_date(">1900")
+        assert date == ">1900"
+
+    def test_circa_with_space(self):
+        """Test parsing circa with space after symbol"""
+        date = self.parser.parse_date("± 1750")
+        assert date == "± 1750"
+
     def test_date_with_text(self):
         """Test extracting date from text with other content"""
         date = self.parser.parse_date("geboren op 30-06-1703 in Amsterdam")
         assert date == "30-06-1703"
+
+    def test_date_with_text_and_symbol(self):
+        """Test extracting date with symbol from text"""
+        date = self.parser.parse_date("geboren ±1645 in Delft")
+        assert date == "±1645"
 
     def test_no_date(self):
         """Test when no date pattern is found"""
@@ -528,6 +548,276 @@ Zo'n 200 brieven van hem gericht aan zijn familie bevinden zich in het missiehui
         all_child_names = [c.name for c in self.parser.unnamed_children]
         assert not any("brieven" in name.lower() for name in all_child_names)
         assert not any("200" in name for name in all_child_names)
+
+
+class TestOccupationFiltering:
+    """Test that Dutch occupations are not parsed as person names"""
+
+    def setup_method(self):
+        self.parser = StamboomParser()
+
+    def test_occupation_timmerman_not_parsed_as_child(self):
+        """Test that 'Timmerman' (carpenter) is not parsed as a child name"""
+        text = """VI.9 Antonie RUTJES [100]
+Tr. Renkum 11-05-1861 met
+Hermina PELGRIM
+* Steenderen 1838/1839
+Hieruit:
+	•	Theodorus Joseph RUTJES
+* Renkum 09-07-1862, † Renkum 14-05-1922
+Timmerman
+Tr. Renkum 12-05-1894 met
+Petronella DEEGENS
+"""
+        self.parser.parse(text)
+
+        # Check that Theodorus is parsed correctly
+        assert "VI.9" in self.parser.persons
+        person = self.parser.persons["VI.9"]
+
+        # Should have unnamed children for Theodorus Joseph Rutjes
+        # but NOT for "Timmerman" (which is his occupation)
+        child_names = [c.name for c in self.parser.unnamed_children if c.parent_ref == "VI.9"]
+
+        # Should have exactly 1 child: Theodorus Joseph Rutjes
+        assert len(child_names) == 1
+        assert "Theodorus Joseph Rutjes" in child_names[0]
+
+        # Should NOT have "Timmerman" as a child
+        assert not any("timmerman" in name.lower() for name in child_names)
+
+    def test_occupation_with_year_filtered(self):
+        """Test that occupation with year like 'Timmerman (1938)' is filtered"""
+        text = """V.1 Jan RUTJES [50]
+Tr. Ewijk 28-12-1922 met
+Maria LELIVELD
+* Beuningen 1895/1896, zn. van Willem Lelivelt en Hendri±Mulders. Timmerman (1938).
+Hieruit:
+	•	Piet RUTJES
+"""
+        self.parser.parse(text)
+
+        # Check unnamed children - should only have Piet, not "Timmerman"
+        child_names = [c.name for c in self.parser.unnamed_children if c.parent_ref == "V.1"]
+        assert len(child_names) == 1
+        assert "Piet Rutjes" in child_names[0]
+        assert not any("timmerman" in name.lower() for name in child_names)
+
+    def test_surname_timmerman_still_recognized(self):
+        """Test that 'Timmerman' as a surname (with first name) is still parsed"""
+        text = """V.1 Jan RUTJES [50]
+Tr. met
+Hermina PELGRIM
+Hieruit:
+	•	Gillis TIMMERMAN
+* Delft 1800
+"""
+        self.parser.parse(text)
+
+        # "Gillis Timmerman" should be parsed as a child (has first name)
+        child_names = [c.name for c in self.parser.unnamed_children if c.parent_ref == "V.1"]
+        assert len(child_names) == 1
+        assert "Gillis Timmerman" in child_names[0]
+
+    def test_occupation_with_trailing_period_filtered(self):
+        """Test that occupation with trailing period like 'Landbouwer.' is filtered"""
+        text = """VI.1 Johannes BRUIJNS [100]
+* Zevenaar 1832, † Zevenaar 10-02-1874.
+Landbouwer.
+Tr. Zevenaar 08-07-1871 met
+Helena ROSS
+Hieruit:
+	•	Bernardus BRUIJNS
+"""
+        self.parser.parse(text)
+
+        # Should NOT have "Landbouwer" or "Landbouwer." as a child
+        child_names = [c.name for c in self.parser.unnamed_children if c.parent_ref == "VI.1"]
+        assert len(child_names) == 1
+        assert "Bernardus Bruijns" in child_names[0]
+        assert not any("landbouwer" in name.lower() for name in child_names)
+
+
+class TestBSReferenceFiltering:
+    """Test that BS (burgerlijke stand / civil registry) references are filtered from parent names"""
+
+    def setup_method(self):
+        self.parser = StamboomParser()
+
+    def test_bs_reference_removed_from_mother_name(self):
+        """Test that BS reference is removed from mother's name in spouse parent info"""
+        text = """V.1 Jan RUTJES [100]
+Tr. Bemmel 12-11-1890 met
+Bernardina KIEVITS
+* Doornenburg 20-07-1867, dr. van Antoon Kievits en Johanna Janssen (BS Bemmel 1923 O 69).
+"""
+        self.parser.parse(text)
+
+        person = self.parser.persons["V.1"]
+        assert len(person.marriages) == 1
+        marriage = person.marriages[0]
+
+        # Mother name should be "Johanna Janssen" without the BS reference
+        assert marriage.spouse_mother_name == "Johanna Janssen"
+        assert "BS" not in marriage.spouse_mother_name
+        assert "O 69" not in marriage.spouse_mother_name
+
+    def test_bs_reference_removed_from_father_name(self):
+        """Test that BS reference is removed from father's name"""
+        text = """V.1 Jan RUTJES [100]
+Tr. met
+Maria KRIJNEN
+* Beuningen 1835/1836, dr. van Leonardus Krijnen (BS Beuningen 1911 O 45) en Hendrica Kouweberg.
+"""
+        self.parser.parse(text)
+
+        person = self.parser.persons["V.1"]
+        marriage = person.marriages[0]
+
+        # Father name should be "Leonardus Krijnen" without the BS reference
+        assert marriage.spouse_father_name == "Leonardus Krijnen"
+        assert "BS" not in marriage.spouse_father_name
+
+    def test_bs_reference_both_parents(self):
+        """Test BS reference removal when both parents have references"""
+        text = """V.1 Jan RUTJES [100]
+Tr. met
+Anna GEURTS
+* Huissen 23-04-1859, dr. van Albertus Geurts (BS Huissen 1920 O 5) en Johanna Koenen (BS Bemmel 1924 O 3).
+"""
+        self.parser.parse(text)
+
+        person = self.parser.persons["V.1"]
+        marriage = person.marriages[0]
+
+        assert marriage.spouse_father_name == "Albertus Geurts"
+        assert marriage.spouse_mother_name == "Johanna Koenen"
+        assert "BS" not in marriage.spouse_father_name
+        assert "BS" not in marriage.spouse_mother_name
+
+
+class TestMarriagePatterns:
+    """Test various marriage patterns (Tr., Otr., Ondertr.)"""
+
+    def setup_method(self):
+        self.parser = StamboomParser()
+
+    def test_ondertr_marriage_pattern(self):
+        """Test that 'Ondertr. / tr.' (full ondertrouw/trouwen) is recognized as marriage"""
+        text = """I.1 Paulus RUTGERS [288]
+* ±1672. ▭ Kekerdom 18-04-1723.
+Ondertr. / tr. Gendt 01-08/22-08-1697 met Maria VAN BERCK [289]
+△ Zyfflich 16-11-1679
+Hieruit:
+	•	Joannes RUTJES
+* 1699/1700
+	•	Aldegondis RUTJES, ±1700, zie II.1
+"""
+        self.parser.parse(text)
+
+        person = self.parser.persons["I.1"]
+
+        # Should have recognized the marriage
+        assert len(person.marriages) == 1
+
+        # Should have parsed the marriage date and place
+        marriage = person.marriages[0]
+        assert marriage.marriage_date == "22-08-1697"
+        assert marriage.marriage_place == "Gendt 01-08/"
+
+        # Should have parsed the spouse
+        assert marriage.spouse_name == "Maria van Berck"
+
+        # Should have children linked
+        assert len(person.children) >= 1  # At least the "zie II.1" reference
+
+    def test_relatie_met_pattern(self):
+        """Test that 'Relatie met' (relationship with) is recognized as partnership"""
+        text = """IV.1 Philippus WEETELING [80]
+† Delft 1778-1783.
+Relatie met
+Johanna (Hendrina) DE JONG(H) [81]
+Hieruit:
+	•	Philippus WEETELING, 1779, zie V.1
+"""
+        self.parser.parse(text)
+
+        person = self.parser.persons["IV.1"]
+
+        # Should have recognized the relationship as a marriage/partnership
+        assert len(person.marriages) == 1
+
+        # Should have parsed the partner name
+        marriage = person.marriages[0]
+        assert marriage.spouse_name == "Johanna (Hendrina) de Jong(H)"
+
+        # Should have the child reference
+        assert "V.1" in person.children
+
+
+class TestSurnameWithPreposition:
+    """Test surname detection when name has slashes AND Dutch prepositions"""
+
+    def setup_method(self):
+        self.parser = StamboomParser()
+
+    def test_given_name_variants_with_surname_preposition(self):
+        """Test that 'Walravius / Walramus VAN BENTHUM' correctly identifies van Benthum as surname"""
+        text = """II.1 Aldegondis RUTJES [128]
+Tr. RK Leuth 25-04-1736 met
+(2) Walravius / Walramus (Walramen) VAN BENTHUM
+* en △ Kekerdom 04-05-1709, † en ▭ Kekerdom 18-11 / 22-11-1753
+"""
+        self.parser.parse(text)
+
+        # Generate GEDCOM to check name formatting
+        import tempfile
+        import os
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.ged', delete=False) as f:
+            temp_file = f.name
+
+        try:
+            self.parser.generate_gedcom(temp_file)
+
+            # Read GEDCOM and check name formatting
+            with open(temp_file, 'r', encoding='utf-8') as f:
+                gedcom_content = f.read()
+
+            # Should have "Walravius / Walramus" as given name and "van Benthum" as surname
+            # GEDCOM format: "1 NAME Walravius / Walramus /van Benthum/"
+            assert "1 NAME Walravius / Walramus /van Benthum/" in gedcom_content
+
+            # Should NOT have the old incorrect format where "/" is in surname
+            assert "1 NAME Walravius // Walramus van Benthum/" not in gedcom_content
+
+        finally:
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
+
+    def test_surname_variants_without_preposition(self):
+        """Test that 'Agnes Rutjes / Rutjens' still works (surname variants without preposition)"""
+        text = """V.10 AGNES RUTJES / RUTJENS
+* Millingen 1803
+"""
+        self.parser.parse(text)
+
+        import tempfile
+        import os
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.ged', delete=False) as f:
+            temp_file = f.name
+
+        try:
+            self.parser.generate_gedcom(temp_file)
+
+            with open(temp_file, 'r', encoding='utf-8') as f:
+                gedcom_content = f.read()
+
+            # Should have "Agnes" as given name and "Rutjes / Rutjens" as surname
+            assert "1 NAME Agnes /Rutjes / Rutjens/" in gedcom_content
+
+        finally:
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
 
 
 if __name__ == "__main__":

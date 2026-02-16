@@ -21,13 +21,15 @@ class GedcomGenerator:
 
         text = str(text).strip()
 
-        # Probeer jaar te extraheren (4 cijfers)
-        year_match = re.search(r"\b(\d{4})\b", text)
-        year = year_match.group(1) if year_match else None
+        # Probeer jaar te extraheren (4 cijfers met optionele prefix: <, >, ±)
+        # Voorbeelden: "1850", "±1850", "<1850", ">1850"
+        year_match = re.search(r"([<>±]?\s*\d{4})", text)
+        year = year_match.group(1).strip() if year_match else None
 
         # Plaats is alles voor het jaar (zonder 'Geb.')
-        if year:
-            place = text[: text.find(year)].strip()
+        if year_match:
+            # Vind de positie van de volledige year match (inclusief prefix)
+            place = text[: year_match.start()].strip()
         else:
             place = text
 
