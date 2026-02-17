@@ -543,11 +543,67 @@ class StamboomParser:
                 # Verwijder referentie nummers en extra spaties
                 spouse_name = re.sub(r'\s*\[\d+\]\s*$', '', spouse_name)
                 spouse_name = re.sub(r'\s*\(\d+\)\s*$', '', spouse_name)
-                if spouse_name and len(spouse_name) > 2:
-                    self.current_marriage.spouse_name = self.normalize_name(spouse_name)
-                    self.current_marriage.spouse_info = spouse_name
+                # Filter out divorce markers en and patterns die niet een echte naam zijn
+                # "en gesch. van", "en 13-08-1965 gescheiden van", etc.
+                # Match: (optioneel "en") + (optioneel datum) + "gescheiden" + (optioneel "van")
+                if not re.match(r'^(en\s+)?(\d{1,2}[-/]\d{1,2}[-/]\d{2,4}\s+)?(gesch\.?|gescheiden)(\s+van)?$', spouse_name, re.IGNORECASE):
+                    if spouse_name and len(spouse_name) > 2:
+                        self.current_marriage.spouse_name = self.normalize_name(spouse_name)
+                        self.current_marriage.spouse_info = spouse_name
 
-        # Parse partner (regel na tr./otr.)
+        # Check if this line starts with a marriage number like "(2)" or "(3)"
+        # This indicates a new marriage ONLY if current marriage already has a spouse
+        elif self.current_person and not self.in_children_section and \
+             re.match(r'^\s*\((\d+)\)\s+', line):
+            numbered_spouse_match = re.match(r'^\s*\((\d+)\)\s+(.+)', line)
+            if numbered_spouse_match:
+                marriage_num = int(numbered_spouse_match.group(1))
+                # Only create new marriage if current marriage already has a spouse set
+                # This handles cases like:
+                #   Tr. met
+                #   (1) First Spouse
+                #   (2) Second Spouse  <- creates new marriage here
+                if self.current_marriage and self.current_marriage.spouse_name:
+                    # Current marriage already has spouse, so (2) must be a new marriage
+                    self.current_marriage_num += 1
+                    self.current_marriage = Marriage()
+                    self.current_marriage.marriage_num = self.current_marriage_num
+                    self.current_person.marriages.append(self.current_marriage)
+
+            # Now parse the spouse name (for both new marriage and existing)
+            if self.current_marriage and not self.current_marriage.spouse_name:
+                # Skip URLs
+                if "http://" in line or "https://" in line or "www." in line.lower():
+                    return
+
+                # Skip regels die te lang zijn
+                if len(line) > 100:
+                    return
+
+                # Dit zou de partner kunnen zijn
+                if not any(
+                    keyword in line.lower()
+                    for keyword in ["hieruit:", "uit (", "arch.", "beers", "cuijk", "wanroij", "schepenbanken", "http://", "https://", "www.", "zie"]
+                ):
+                    clean_name = line.strip()
+                    clean_name = re.sub(r'^[•\-*†△▭]\s*', '', clean_name)
+                    clean_name = re.sub(r'\s*\[\d+\]\s*$', '', clean_name)
+                    clean_name = re.sub(r'^\s*\(\d+\)\s*', '', clean_name)
+                    clean_name = re.split(r'[*†△▭]', clean_name)[0].strip()
+
+                    if clean_name.upper() not in ["NN", "N.N."]:
+                        if len(clean_name) < 3 or not re.search(r'[A-Za-z]', clean_name):
+                            return
+
+                    self.current_marriage.spouse_name = self.normalize_name(clean_name)
+                    self.current_marriage.spouse_info = line
+
+                    father_name, mother_name = self.parse_spouse_parents(line)
+                    if father_name and mother_name:
+                        self.current_marriage.spouse_father_name = father_name
+                        self.current_marriage.spouse_mother_name = mother_name
+
+        # Parse partner (regel na tr./otr.) - original logic for non-numbered spouses
         elif self.current_marriage and not self.current_marriage.spouse_name and \
              not re.match(r"^[IVX]+\.\d+", line) and not self.in_children_section:
             # Skip URLs (ook met leading whitespace)
