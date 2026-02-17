@@ -154,6 +154,28 @@ class TestNameParsing:
             if os.path.exists(temp_file):
                 os.remove(temp_file)
 
+    def test_variant_first_names_with_slash(self):
+        """Test variant first names separated by slash"""
+        self.gedcom.add_individual(2, "Willemina / Maria Daniels", None, None, None)
+
+        import tempfile
+        import os
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.ged', delete=False) as f:
+            temp_file = f.name
+
+        try:
+            self.gedcom.generate_gedcom(temp_file)
+
+            with open(temp_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            # Should have "Willemina / Maria" as given names and "Daniels" as surname
+            assert "1 NAME Willemina / Maria /Daniels/" in content
+
+        finally:
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -75,7 +75,7 @@ pip install pandas openpyxl pytest
 
 Both converters have comprehensive unit test coverage:
 - **Stamboom converter:** 60 tests in `test_stamboom_parser.py`
-- **Kwartierstaat converter:** 12 tests in `test_kwartierstaat.py`
+- **Kwartierstaat converter:** 13 tests in `test_kwartierstaat.py`
 
 **Running tests:**
 ```bash
