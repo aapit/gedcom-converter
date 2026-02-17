@@ -169,9 +169,9 @@ class TestNameParsing:
             with open(temp_file, 'r', encoding='utf-8') as f:
                 content = f.read()
 
-            # "/" in given names should be replaced with "or" to avoid GEDCOM parsing issues
+            # "/" in given names should be replaced with "of" to avoid GEDCOM parsing issues
             # GEDCOM uses "/" as surname delimiter, so "/" in given names causes confusion
-            assert "1 NAME Willemina or Maria /Daniels/" in content
+            assert "1 NAME Willemina of Maria /Daniels/" in content
 
         finally:
             if os.path.exists(temp_file):

@@ -147,9 +147,9 @@ class GedcomGenerator:
                         surname = " ".join(name_parts[surname_idx:])
 
                         # Verwijder "/" uit voornamen (GEDCOM gebruikt / als surname delimiter)
-                        # Vervang "/" door "or" voor variant voornamen
-                        # Bijvoorbeeld: "Willemina / Maria" -> "Willemina or Maria"
-                        given = given.replace(" / ", " or ").replace("/", " or ")
+                        # Vervang "/" door "of" voor variant voornamen
+                        # Bijvoorbeeld: "Willemina / Maria" -> "Willemina of Maria"
+                        given = given.replace(" / ", " of ").replace("/", " of ")
 
                         f.write(f"1 NAME {given} /{surname}/\n")
                     else:
