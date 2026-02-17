@@ -527,7 +527,7 @@ class StamboomParser:
             # Simpele heuristiek: als het geen andere keyword bevat
             if not any(
                 keyword in line.lower()
-                for keyword in ["hieruit:", "uit (", "arch.", "beers", "cuijk", "wanroij", "schepenbanken", "http://", "https://", "www."]
+                for keyword in ["hieruit:", "uit (", "arch.", "beers", "cuijk", "wanroij", "schepenbanken", "http://", "https://", "www.", "zie"]
             ):
                 # Verwijder referentie nummer [xxx] en huwelijksnummer (1), (2), etc. uit partner naam
                 # Bijvoorbeeld: "(1) Maria ABEN [33]" -> "Maria ABEN"
@@ -542,8 +542,10 @@ class StamboomParser:
                 clean_name = re.split(r'[*†△▭]', clean_name)[0].strip()
 
                 # Skip als de naam te kort is (< 3 chars) of alleen cijfers/symbolen bevat
-                if len(clean_name) < 3 or not re.search(r'[A-Za-z]', clean_name):
-                    return
+                # Maar maak uitzondering voor "NN" en "N.N." (nomen nescio = naam onbekend)
+                if clean_name.upper() not in ["NN", "N.N."]:
+                    if len(clean_name) < 3 or not re.search(r'[A-Za-z]', clean_name):
+                        return
 
                 self.current_marriage.spouse_name = self.normalize_name(clean_name)
                 self.current_marriage.spouse_info = line
