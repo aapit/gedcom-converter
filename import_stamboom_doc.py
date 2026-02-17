@@ -52,6 +52,7 @@ class Person:
         self.marriages = []  # lijst van Marriage objecten
         self.children = []  # lijst van generation_ids
         self.parent_ref = None  # referentie naar ouder (bijv. "II.1")
+        self.parent_marriage_num = None  # huwelijksnummer van de ouder (1, 2, 3, etc.) voor "Uit (1):", "Uit (2):"
         self.notes = []  # extra tekstuele notities
 
 
@@ -578,7 +579,10 @@ class StamboomParser:
             child_match = re.search(r"zie\s+([IVX]+\.\d+)", line)
             if child_match:
                 child_ref = child_match.group(1)
-                self.current_person.children.append(child_ref)
+                # Sla kind op met huwelijksnummer: (child_ref, marriage_num)
+                # Als marriage_num None is (geen "Uit (X):"), dan is het uit "Hieruit:" (eerste huwelijk)
+                marriage_num = self.current_marriage_num if self.current_marriage_num is not None else 1
+                self.current_person.children.append((child_ref, marriage_num))
                 self.current_child = None  # Reset current child
                 self.child_marriage_context = False  # Reset huwelijk context
             elif re.match(r"^[A-Z•]", line) and not any(
@@ -657,6 +661,7 @@ class StamboomParser:
                 child = Person(f"{self.current_person.generation_id}_child_{len(self.unnamed_children)+1}", None)
                 child.name = self.normalize_name(child_name)
                 child.parent_ref = self.current_person.generation_id
+                child.parent_marriage_num = self.current_marriage_num  # Bewaar welk huwelijk (1, 2, 3, etc.)
                 # Probeer geslacht te bepalen uit naam patronen
                 # Dit is niet perfect, maar beter dan niets
                 child.sex = None  # Onbekend, tenzij we het kunnen afleiden
@@ -869,20 +874,47 @@ class StamboomParser:
             self.person_parent_families[child_key].append(fam_id)
 
         # Stap 2: Voeg kinderen toe aan families (met generatie ID)
-        for gen_id in sorted(self.persons.keys()):
-            person = self.persons[gen_id]
-            person_id = person_id_map[gen_id]
+        # Nieuwe aanpak: itereer door ouders en hun children lijst
+        for parent_gen_id in sorted(self.persons.keys()):
+            parent_person = self.persons[parent_gen_id]
 
-            if person.parent_ref and person.parent_ref in person_id_map:
-                parent_person = self.persons.get(person.parent_ref)
-                if parent_person and parent_person.marriages:
-                    # Gebruik de eerste familie van de ouder
-                    if person.parent_ref in person_families and person_families[person.parent_ref]:
-                        parent_fam_id = person_families[person.parent_ref][0]
-                        # Zoek de familie met dit ID
+            if parent_person.children and parent_gen_id in person_families:
+                # Itereer door alle kinderen van deze ouder
+                for child_info in parent_person.children:
+                    # child_info kan een tuple (child_ref, marriage_num) zijn of een string (backward compatibility)
+                    if isinstance(child_info, tuple):
+                        child_ref, marriage_num = child_info
+                    else:
+                        # Oude format: alleen child_ref, gebruik eerste huwelijk
+                        child_ref = child_info
+                        marriage_num = 1
+
+                    # Zoek het kind in de persons dict
+                    if child_ref in person_id_map:
+                        child_id = person_id_map[child_ref]
+
+                        # Gebruik het juiste huwelijk op basis van marriage_num
+                        marriage_index = marriage_num - 1
+                        if marriage_index >= 0 and marriage_index < len(person_families[parent_gen_id]):
+                            parent_fam_id = person_families[parent_gen_id][marriage_index]
+                        elif len(person_families[parent_gen_id]) > 0:
+                            # Fallback naar laatste huwelijk als marriage_index buiten bereik is
+                            parent_fam_id = person_families[parent_gen_id][-1]
+                        else:
+                            # Geen familie beschikbaar, skip dit kind
+                            continue
+
+                        # Voeg kind toe aan familie
                         for fam_key, fam_data in families.items():
                             if fam_data["id"] == parent_fam_id:
-                                families[fam_key]["children"].append(person_id)
+                                families[fam_key]["children"].append(child_id)
+                                # Sla FAMC link op voor dit kind
+                                if not hasattr(self, 'person_parent_families'):
+                                    self.person_parent_families = {}
+                                if child_ref not in self.person_parent_families:
+                                    self.person_parent_families[child_ref] = []
+                                if parent_fam_id not in self.person_parent_families[child_ref]:
+                                    self.person_parent_families[child_ref].append(parent_fam_id)
                                 break
 
         # Stap 3: Voeg kinderen zonder generatie ID toe aan families
@@ -891,12 +923,30 @@ class StamboomParser:
             parent_ref = child.parent_ref
 
             if parent_ref and parent_ref in person_families and person_families[parent_ref]:
-                # Gebruik de eerste familie van de ouder
-                parent_fam_id = person_families[parent_ref][0]
-                # Zoek de familie met dit ID
+                # Gebruik het juiste huwelijk op basis van parent_marriage_num
+                # Als parent_marriage_num niet is ingesteld, gebruik het eerste huwelijk
+                marriage_index = (child.parent_marriage_num - 1) if child.parent_marriage_num else 0
+                if marriage_index >= 0 and marriage_index < len(person_families[parent_ref]):
+                    parent_fam_id = person_families[parent_ref][marriage_index]
+                elif len(person_families[parent_ref]) > 0:
+                    # Fallback naar laatste huwelijk als marriage_index buiten bereik is
+                    parent_fam_id = person_families[parent_ref][-1]
+                else:
+                    # Geen familie beschikbaar, skip dit kind
+                    continue
+
+                # Voeg kind toe aan familie
                 for fam_key, fam_data in families.items():
                     if fam_data["id"] == parent_fam_id:
                         families[fam_key]["children"].append(child_id)
+                        # Sla FAMC link op voor dit kind
+                        if not hasattr(self, 'person_parent_families'):
+                            self.person_parent_families = {}
+                        child_gen_id = child.generation_id
+                        if child_gen_id not in self.person_parent_families:
+                            self.person_parent_families[child_gen_id] = []
+                        if parent_fam_id not in self.person_parent_families[child_gen_id]:
+                            self.person_parent_families[child_gen_id].append(parent_fam_id)
                         break
 
         with open(output_file, "w", encoding="utf-8") as f:
@@ -1044,15 +1094,15 @@ class StamboomParser:
                 # Het referentienummer zit nu al in het @Ixxx@ ID, dus niet meer als notitie nodig
 
                 # Link naar ouders (FAMC)
-                if person.parent_ref and person.parent_ref in person_families:
-                    if person_families[person.parent_ref]:
-                        # Gebruik de eerste familie van de ouder
-                        parent_fam_id = person_families[person.parent_ref][0]
-                        f.write(f"1 FAMC {parent_fam_id}\n")
-
-                # Link naar ouders voor partners (FAMC via person_parent_families)
+                # Gebruik person_parent_families als beschikbaar (voor kinderen uit specifieke huwelijken)
+                # Anders gebruik de oude logica met parent_ref (voor backward compatibility)
                 if hasattr(self, 'person_parent_families') and gen_id in self.person_parent_families:
                     for parent_fam_id in self.person_parent_families[gen_id]:
+                        f.write(f"1 FAMC {parent_fam_id}\n")
+                elif person.parent_ref and person.parent_ref in person_families:
+                    if person_families[person.parent_ref]:
+                        # Gebruik de eerste familie van de ouder (fallback voor oude logica)
+                        parent_fam_id = person_families[person.parent_ref][0]
                         f.write(f"1 FAMC {parent_fam_id}\n")
 
                 # Link naar eigen huwelijken (FAMS)
@@ -1161,7 +1211,9 @@ def process_file(doc_file, output_file=None, verbose=True):
             if person.marriages:
                 print(f"    Huwelijken: {len(person.marriages)}")
             if person.children:
-                print(f"    Kinderen: {len(person.children)} (refs: {', '.join(person.children[:3])})")
+                # Extraheer child refs uit tuples (child_ref, marriage_num) of strings
+                child_refs = [c[0] if isinstance(c, tuple) else c for c in person.children[:3]]
+                print(f"    Kinderen: {len(person.children)} (refs: {', '.join(child_refs)})")
 
     # Genereer GEDCOM
     if verbose:
