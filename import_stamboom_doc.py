@@ -595,7 +595,8 @@ class StamboomParser:
                     return
 
                 # Skip regels met cijfers gevolgd door woorden (waarschijnlijk notities)
-                if re.search(r'\d{2,}', line):  # 2+ cijfers achter elkaar
+                # MAAR niet als het geboorte/sterfte symbolen bevat (* of †)
+                if re.search(r'\d{2,}', line) and not re.search(r'[*†△▭]', line):  # 2+ cijfers achter elkaar, geen levensgebeurtenissen
                     return
 
                 # Skip Nederlandse beroepen (occupations)
@@ -645,12 +646,34 @@ class StamboomParser:
 
                 # Dit is een kind zonder generatie ID
                 # Maak een nieuw kind persoon aan
-                child_name = line.strip()
+                child_line = line.strip()
 
                 # Verwijder bullet points
-                child_name = re.sub(r'^[•\-]\s*', '', child_name)
+                child_line = re.sub(r'^[•\-]\s*', '', child_line)
 
-                # Verwijder eventuele trailing punten en datums
+                # Probeer geboorte/sterfte info te extraheren voordat we de naam cleanen
+                birth_info = None
+                death_info = None
+                if "*" in child_line:
+                    # Extract geboorte info
+                    birth_match = re.search(r'\*\s*([^,†]+)', child_line)
+                    if birth_match:
+                        birth_str = birth_match.group(1).strip()
+                        birth_place, birth_date = self.parse_place_date(birth_str)
+                        if birth_place or birth_date:
+                            birth_info = (birth_place, birth_date)
+
+                if "†" in child_line:
+                    # Extract sterfte info
+                    death_match = re.search(r'†\s*([^,*]+)', child_line)
+                    if death_match:
+                        death_str = death_match.group(1).strip()
+                        death_place, death_date = self.parse_place_date(death_str)
+                        if death_place or death_date:
+                            death_info = (death_place, death_date)
+
+                # Extraheer alleen de naam (alles voor de eerste komma of sterfte symbool)
+                child_name = child_line
                 child_name = re.sub(r",.*$", "", child_name)  # Verwijder alles na komma
                 child_name = re.sub(r"\s*\d{4}.*$", "", child_name)  # Verwijder jaar
 
@@ -662,6 +685,13 @@ class StamboomParser:
                 child.name = self.normalize_name(child_name)
                 child.parent_ref = self.current_person.generation_id
                 child.parent_marriage_num = self.current_marriage_num  # Bewaar welk huwelijk (1, 2, 3, etc.)
+
+                # Sla geboorte/sterfte info op als geëxtraheerd
+                if birth_info:
+                    child.birth_place, child.birth_date = birth_info
+                if death_info:
+                    child.death_place, child.death_date = death_info
+
                 # Probeer geslacht te bepalen uit naam patronen
                 # Dit is niet perfect, maar beter dan niets
                 child.sex = None  # Onbekend, tenzij we het kunnen afleiden
