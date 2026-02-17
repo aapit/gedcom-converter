@@ -866,7 +866,8 @@ class StamboomParser:
                 if not child_name.strip():
                     return
 
-                child = Person(f"{self.current_person.generation_id}_child_{len(self.unnamed_children)+1}", None)
+                child_id = f"{self.current_person.generation_id}_child_{len(self.unnamed_children)+1}"
+                child = Person(child_id, None)
                 child.name = self.normalize_name(child_name)
                 child.parent_ref = self.current_person.generation_id
                 child.parent_marriage_num = self.current_marriage_num  # Bewaar welk huwelijk (1, 2, 3, etc.)
@@ -882,6 +883,12 @@ class StamboomParser:
                 child.sex = None  # Onbekend, tenzij we het kunnen afleiden
 
                 self.unnamed_children.append(child)
+
+                # BELANGRIJK: Voeg dit kind ook toe aan parent's children lijst om volgorde te bewaren
+                # Gebruik marriage_num van de huidige huwelijk sectie
+                marriage_num = self.current_marriage_num if self.current_marriage_num is not None else 1
+                self.current_person.children.append((child_id, marriage_num))
+
                 self.current_child = child
                 self.current_child_has_baptism = False  # Reset doop flag voor nieuw kind
                 self.child_marriage_context = False  # Reset huwelijk context voor nieuw kind
@@ -1149,7 +1156,7 @@ class StamboomParser:
                         child_ref = child_info
                         marriage_num = 1
 
-                    # Zoek het kind in de persons dict
+                    # Zoek het kind in person_id_map (werkt voor named EN unnamed children)
                     if child_ref in person_id_map:
                         child_id = person_id_map[child_ref]
 
@@ -1177,37 +1184,7 @@ class StamboomParser:
                                     self.person_parent_families[child_ref].append(parent_fam_id)
                                 break
 
-        # Stap 3: Voeg kinderen zonder generatie ID toe aan families
-        for child in self.unnamed_children:
-            child_id = person_id_map[child.generation_id]
-            parent_ref = child.parent_ref
-
-            if parent_ref and parent_ref in person_families and person_families[parent_ref]:
-                # Gebruik het juiste huwelijk op basis van parent_marriage_num
-                # Als parent_marriage_num niet is ingesteld, gebruik het eerste huwelijk
-                marriage_index = (child.parent_marriage_num - 1) if child.parent_marriage_num else 0
-                if marriage_index >= 0 and marriage_index < len(person_families[parent_ref]):
-                    parent_fam_id = person_families[parent_ref][marriage_index]
-                elif len(person_families[parent_ref]) > 0:
-                    # Fallback naar laatste huwelijk als marriage_index buiten bereik is
-                    parent_fam_id = person_families[parent_ref][-1]
-                else:
-                    # Geen familie beschikbaar, skip dit kind
-                    continue
-
-                # Voeg kind toe aan familie
-                for fam_key, fam_data in families.items():
-                    if fam_data["id"] == parent_fam_id:
-                        families[fam_key]["children"].append(child_id)
-                        # Sla FAMC link op voor dit kind
-                        if not hasattr(self, 'person_parent_families'):
-                            self.person_parent_families = {}
-                        child_gen_id = child.generation_id
-                        if child_gen_id not in self.person_parent_families:
-                            self.person_parent_families[child_gen_id] = []
-                        if parent_fam_id not in self.person_parent_families[child_gen_id]:
-                            self.person_parent_families[child_gen_id].append(parent_fam_id)
-                        break
+        # Stap 3 niet meer nodig: unnamed children zitten nu ook in parent.children lijst!
 
         with open(output_file, "w", encoding="utf-8") as f:
             # Header
