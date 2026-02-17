@@ -74,7 +74,7 @@ pip install pandas openpyxl pytest
 ### Unit Tests
 
 Both converters have comprehensive unit test coverage:
-- **Stamboom converter:** 60 tests in `test_stamboom_parser.py`
+- **Stamboom converter:** 61 tests in `test_stamboom_parser.py`
 - **Kwartierstaat converter:** 13 tests in `test_kwartierstaat.py`
 
 **Running tests:**
@@ -109,6 +109,7 @@ pytest test_kwartierstaat.py --cov=import_kwartierstaat --cov-report=html
 - Class structures - Person and Marriage initialization
 - URL filtering, occupation filtering, BS reference removal
 - Marriage patterns (Tr., Otr., Ondertr., Relatie met)
+- Spouse name handling: "NN" (nomen nescio), "zie" reference filtering
 
 **Kwartierstaat test coverage includes:**
 - `parse_place_year()` - Date/year extraction with uncertainty markers
