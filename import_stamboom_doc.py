@@ -484,11 +484,33 @@ class StamboomParser:
               re.search(r"\b(otr|ot)\.\s*/?\s*(tr\.?)", line, re.IGNORECASE)):
             # Als we in de kinderen sectie zitten, is dit een huwelijk van een kind
             if self.in_children_section:
+                # Als current_child bestaat, maak een huwelijk aan voor dit kind
+                if self.current_child:
+                    # Parse huwelijksdatum en plaats uit de huidige regel
+                    marriage_text = line
+                    marriage_place, marriage_date = None, None
+
+                    # Probeer plaats/datum te extraheren (bijv. "Tr. Beers 1758 met")
+                    # Verwijder "Tr.", "met", etc.
+                    clean_text = re.sub(r'^(Relatie met|Ondertr\.|Otr?\.|Tr\.)\s*', '', marriage_text, flags=re.IGNORECASE)
+                    clean_text = re.sub(r'\s+(met|with)\s*$', '', clean_text, flags=re.IGNORECASE).strip()
+
+                    if clean_text:
+                        marriage_place, marriage_date = self.parse_place_date(clean_text)
+
+                    # Maak Marriage object voor het kind
+                    marriage = Marriage()
+                    marriage.marriage_place = marriage_place
+                    marriage.marriage_date = marriage_date
+                    self.current_child.marriages.append(marriage)
+                    # We gaan de partner naam op de volgende regel verwachten
+                    self.parsing_spouse_info = True
+
                 # Markeer dat we nu een huwelijk van een kind parsen
-                # De volgende regels (partner naam, etc.) moeten worden genegeerd
+                # De volgende regels (partner naam, etc.) moeten worden genegeerd door child parsing
                 self.child_marriage_context = True
                 self.child_marriage_lines_seen = 0  # Reset counter
-                self.current_child = None  # Reset huidige kind
+                # Houd current_child intact zodat we de partner kunnen toevoegen
                 return
 
             # Anders is dit een huwelijk van de huidige persoon
@@ -568,6 +590,49 @@ class StamboomParser:
                 if father_name and mother_name:
                     self.current_marriage.spouse_father_name = father_name
                     self.current_marriage.spouse_mother_name = mother_name
+
+        # Parse partner voor kinderen in kinderen sectie
+        elif self.in_children_section and self.current_child and len(self.current_child.marriages) > 0:
+            # Als het kind een huwelijk heeft en nog geen partner naam
+            child_marriage = self.current_child.marriages[-1]
+            if not child_marriage.spouse_name and not re.match(r"^[IVX]+\.\d+", line):
+                # Skip URLs
+                if "http://" in line or "https://" in line or "www." in line.lower():
+                    return
+
+                # Skip te lange regels
+                if len(line) > 100:
+                    return
+
+                # Skip regels met keywords
+                if not any(
+                    keyword in line.lower()
+                    for keyword in ["hieruit:", "uit (", "arch.", "beers", "wanroij", "schepenbanken", "http://", "https://", "www.", "zie", "nageslacht"]
+                ):
+                    clean_name = line.strip()
+
+                    # Verwijder symbolen en referenties
+                    clean_name = re.sub(r'^[•\-*†△▭]\s*', '', clean_name)
+                    clean_name = re.sub(r'\s*\[\d+\]\s*$', '', clean_name)
+                    clean_name = re.sub(r'^\s*\(\d+\)\s*', '', clean_name)
+                    clean_name = re.split(r'[*†△▭]', clean_name)[0].strip()
+
+                    # Check minimum lengte (met NN exceptie)
+                    if clean_name.upper() not in ["NN", "N.N."]:
+                        if len(clean_name) < 3 or not re.search(r'[A-Za-z]', clean_name):
+                            return
+
+                    # Sla partner naam op
+                    child_marriage.spouse_name = self.normalize_name(clean_name)
+                    child_marriage.spouse_info = line
+
+                    # Reset parsing_spouse_info en child_marriage_context
+                    self.parsing_spouse_info = False
+                    # Reset current_child zodat volgende namen als nieuwe kinderen worden geparsed
+                    self.current_child = None
+                    self.current_child_has_baptism = False
+                    # Blijf in child_marriage_context voor filtering van volgende regels
+                    return
 
         # Parse kinderen sectie
         elif line.startswith("Hieruit:") or re.match(r"^Uit\s+\(\d+\)", line):
@@ -671,11 +736,17 @@ class StamboomParser:
                 # Check of dit een naamvariant is van het huidige kind
                 # Naamvariant detectie: als current_child bestaat EN de regel heeft geen symbolen/markers
                 # EN de achternaam lijkt op de huidige kind naam (zelfde achternaam of hoofdletter patroon)
-                # MAAR: alleen als current_child nog geen doopinfo heeft (anders is dit een nieuw kind)
+                # MAAR: alleen als current_child nog geen levensgebeurtenis heeft (anders is dit een nieuw kind)
                 is_name_variant = False
                 if self.current_child and not any(symbol in child_line for symbol in ['*', '†', '△', '▭', 'Δ', 'zie', 'Tr.', 'tr.', 'Otr.', 'otr.']):
-                    # Als current_child al een doop heeft gehad (Δ gezien), is dit geen variant maar een nieuw kind
-                    if not self.current_child_has_baptism:
+                    # Als current_child al een levensgebeurtenis heeft (geboorte, doop, sterfte), is dit geen variant maar een nieuw kind
+                    has_life_event = (
+                        self.current_child_has_baptism or
+                        self.current_child.birth_date or self.current_child.birth_place or
+                        self.current_child.death_date or self.current_child.death_place or
+                        self.current_child.baptism_date or self.current_child.baptism_place
+                    )
+                    if not has_life_event:
                         # Extract achternaam van huidige kind
                         current_name_parts = self.current_child.name.split()
                         if current_name_parts:
@@ -961,6 +1032,50 @@ class StamboomParser:
             if child_key not in self.person_parent_families:
                 self.person_parent_families[child_key] = []
             self.person_parent_families[child_key].append(fam_id)
+
+        # Stap 1c: Maak families voor kinderen zonder generatie ID met huwelijken
+        for child in self.unnamed_children:
+            child_gen_id = child.generation_id
+            if child.marriages:
+                person_families[child_gen_id] = []
+
+                for i, marriage in enumerate(child.marriages):
+                    fam_key = f"{child_gen_id}_m{i+1}"
+                    fam_id = f"@F{family_id}@"
+                    family_id += 1
+
+                    person_families[child_gen_id].append(fam_id)
+
+                    # Maak familie record
+                    families[fam_key] = {
+                        "id": fam_id,
+                        "parent": person_id_map[child_gen_id],
+                        "parent_sex": child.sex,
+                        "parent_gen_id": child_gen_id,
+                        "spouse_id": None,  # Wordt later gevuld als partner bekend is
+                        "children": [],
+                        "marriage": marriage,
+                    }
+
+                    # Maak partner persoon aan als naam bekend is
+                    if marriage.spouse_name:
+                        spouse_key = f"{child_gen_id}_spouse_{i+1}"
+                        if spouse_key not in person_id_map:
+                            # Voeg partner toe aan spouse_persons
+                            spouse_person = Person(spouse_key, None)
+                            spouse_person.name = marriage.spouse_name
+                            # Bepaal geslacht op basis van parent
+                            spouse_person.sex = "F" if child.sex == "M" else "M" if child.sex == "F" else None
+                            spouse_persons[spouse_key] = spouse_person
+                            person_id_map[spouse_key] = f"@I{spouse_id_start}@"
+                            spouse_id_start += 1
+
+                        families[fam_key]["spouse_id"] = person_id_map[spouse_key]
+
+                        # Voeg ook FAMS voor de partner toe
+                        if spouse_key not in person_families:
+                            person_families[spouse_key] = []
+                        person_families[spouse_key].append(fam_id)
 
         # Stap 2: Voeg kinderen toe aan families (met generatie ID)
         # Nieuwe aanpak: itereer door ouders en hun children lijst
