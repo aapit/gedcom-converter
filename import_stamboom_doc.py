@@ -100,7 +100,10 @@ class StamboomParser:
         self.parsing_spouse_info = False  # True wanneer we partner info aan het parsen zijn
         self.unnamed_children = []  # Kinderen zonder generatie ID
         self.current_child = None  # Huidig kind zonder generatie ID
+        self.current_child_has_baptism = False  # True als we een Δ hebben gezien voor current_child
         self.child_marriage_context = False  # True wanneer we een huwelijk van een kind aan het parsen zijn
+        self.child_marriage_lines_seen = 0  # Tel hoeveel regels we hebben gezien in child_marriage_context
+        self.pending_name_variants = []  # Tijdelijke opslag voor naamvarianten van hetzelfde kind
 
     def normalize_name(self, name):
         """Converteer all-caps namen naar title case"""
@@ -419,7 +422,15 @@ class StamboomParser:
 
         # Parse gedoopt (△ of Δ)
         elif line.startswith("△") or line.startswith("Δ"):
-            # Negeer doop data in kinderen sectie of partner info sectie
+            # In kinderen sectie: markeer dat current_child een doop heeft
+            if self.in_children_section and self.current_child:
+                self.current_child_has_baptism = True
+                # Reset child_marriage_context omdat Δ altijd een nieuw kind aangeeft
+                self.child_marriage_context = False
+                self.child_marriage_lines_seen = 0
+                # We kunnen ook de doopinfo opslaan voor het kind
+                # (maar negeer verder parsen van details in kinderen sectie)
+            # Negeer doop data details in kinderen sectie of partner info sectie
             if not self.in_children_section and not self.parsing_spouse_info:
                 rest = line[1:].strip()
                 # Format: "RK Sint Anthonis 26-08-1707, gett. Derick Jans en Joanna Jans"
@@ -476,6 +487,7 @@ class StamboomParser:
                 # Markeer dat we nu een huwelijk van een kind parsen
                 # De volgende regels (partner naam, etc.) moeten worden genegeerd
                 self.child_marriage_context = True
+                self.child_marriage_lines_seen = 0  # Reset counter
                 self.current_child = None  # Reset huidige kind
                 return
 
@@ -562,6 +574,8 @@ class StamboomParser:
             self.in_children_section = True
             self.parsing_spouse_info = False  # Niet meer in partner info sectie
             self.child_marriage_context = False  # Reset huwelijk context
+            self.current_child = None  # Reset current child voor nieuwe kinderen sectie
+            self.current_child_has_baptism = False  # Reset doop flag voor nieuwe kinderen sectie
             # Extract huwelijksnummer
             marriage_num_match = re.search(r"Uit\s+\((\d+)\)", line)
             if marriage_num_match:
@@ -584,10 +598,11 @@ class StamboomParser:
                 marriage_num = self.current_marriage_num if self.current_marriage_num is not None else 1
                 self.current_person.children.append((child_ref, marriage_num))
                 self.current_child = None  # Reset current child
+                self.current_child_has_baptism = False  # Reset doop flag
                 self.child_marriage_context = False  # Reset huwelijk context
             elif re.match(r"^[A-Z•]", line) and not any(
                 keyword in line.lower()
-                for keyword in ["arch.", "beers", "cuijk", "wanroij", "ibid", "error", "uit", "hieruit", "generatie", "nageslacht", "tr.", "otr.", "http://", "https://", "www."]
+                for keyword in ["arch.", "beers", "wanroij", "ibid", "error", "generatie", "nageslacht", "http://", "https://", "www."]
             ):
                 # Filter notitie-achtige regels (te lang, of beginnen met algemene woorden)
                 # Skip regels die beginnen met algemene woorden (niet namen)
@@ -596,7 +611,8 @@ class StamboomParser:
 
                 # Skip regels met cijfers gevolgd door woorden (waarschijnlijk notities)
                 # MAAR niet als het geboorte/sterfte symbolen bevat (* of †)
-                if re.search(r'\d{2,}', line) and not re.search(r'[*†△▭]', line):  # 2+ cijfers achter elkaar, geen levensgebeurtenissen
+                # EN niet als het een lange archiefregel is (> 200 chars) zoals huwelijkscontracten
+                if re.search(r'\d{2,}', line) and not re.search(r'[*†△▭]', line) and len(line) < 200:  # 2+ cijfers achter elkaar, geen levensgebeurtenissen, korte regel
                     return
 
                 # Skip Nederlandse beroepen (occupations)
@@ -638,18 +654,60 @@ class StamboomParser:
                         return
 
                     # Als het waarschijnlijk geen kind is, negeer de regel (het is de partner)
+                    # EN reset direct child_marriage_context zodat volgende regels als kinderen worden geparsed
                     if not is_likely_child:
+                        self.child_marriage_context = False  # Reset na het skippen van partner
                         return
 
                     # Anders, val door en parse het als een kind
                     self.child_marriage_context = False  # Reset voor nieuw kind
 
                 # Dit is een kind zonder generatie ID
-                # Maak een nieuw kind persoon aan
                 child_line = line.strip()
 
                 # Verwijder bullet points
                 child_line = re.sub(r'^[•\-]\s*', '', child_line)
+
+                # Check of dit een naamvariant is van het huidige kind
+                # Naamvariant detectie: als current_child bestaat EN de regel heeft geen symbolen/markers
+                # EN de achternaam lijkt op de huidige kind naam (zelfde achternaam of hoofdletter patroon)
+                # MAAR: alleen als current_child nog geen doopinfo heeft (anders is dit een nieuw kind)
+                is_name_variant = False
+                if self.current_child and not any(symbol in child_line for symbol in ['*', '†', '△', '▭', 'Δ', 'zie', 'Tr.', 'tr.', 'Otr.', 'otr.']):
+                    # Als current_child al een doop heeft gehad (Δ gezien), is dit geen variant maar een nieuw kind
+                    if not self.current_child_has_baptism:
+                        # Extract achternaam van huidige kind
+                        current_name_parts = self.current_child.name.split()
+                        if current_name_parts:
+                            current_surname = current_name_parts[-1].upper()
+
+                            # Extract achternaam van nieuwe regel
+                            variant_name_temp = re.sub(r",.*$", "", child_line)  # Verwijder alles na komma
+                            variant_name_temp = re.sub(r"\s*\d{4}.*$", "", variant_name_temp)  # Verwijder jaar
+                            variant_parts = variant_name_temp.split()
+
+                            if variant_parts:
+                                variant_surname = variant_parts[-1].upper()
+
+                                # Als achternamen overeenkomen OF beide namen HOOFDLETTERS bevatten (KEIJZERS stijl)
+                                # dan is het waarschijnlijk een variant
+                                if current_surname == variant_surname or (
+                                    any(c.isupper() for c in current_surname if c.isalpha()) and
+                                    any(c.isupper() for c in variant_surname if c.isalpha()) and
+                                    len(variant_parts) >= 2  # Minimaal voornaam + achternaam
+                                ):
+                                    is_name_variant = True
+
+                if is_name_variant:
+                    # Voeg deze naamvariant toe aan het huidige kind als notitie
+                    variant_name = re.sub(r",.*$", "", child_line)  # Verwijder alles na komma
+                    variant_name = re.sub(r"\s*\d{4}.*$", "", variant_name)  # Verwijder jaar
+                    if variant_name.strip():
+                        # Voeg toe als alternatieve naam in notities
+                        alt_name = f"Ook bekend als: {self.normalize_name(variant_name)}"
+                        if alt_name not in self.current_child.notes:
+                            self.current_child.notes.append(alt_name)
+                    return  # Niet verder parsen, dit is een variant
 
                 # Probeer geboorte/sterfte info te extraheren voordat we de naam cleanen
                 birth_info = None
@@ -698,6 +756,7 @@ class StamboomParser:
 
                 self.unnamed_children.append(child)
                 self.current_child = child
+                self.current_child_has_baptism = False  # Reset doop flag voor nieuw kind
                 self.child_marriage_context = False  # Reset huwelijk context voor nieuw kind
 
         # Anders: notitie

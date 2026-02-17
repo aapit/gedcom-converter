@@ -216,6 +216,11 @@ Document must have:
 - Partner names: Detected on line immediately after marriage line, filtered to exclude location names
 - All-caps names: Automatically normalized but can be adjusted in `LOWERCASE_PREPOSITIONS` set
 - Missing FAMS links: Ensure families are created before writing INDI records
+- **NN (nomen nescio)**: Recognized as valid spouse name (exception to minimum length filter)
+- **Multiple marriages**: Children correctly assigned to marriage families using "Uit (1):", "Uit (2):" markers
+- **Name variants**: Consecutive names without life event symbols (before baptism Δ) are merged as "Ook bekend als" notes
+- **Child marriage context**: After a child's marriage ("Tr. met"), the next line is treated as spouse, then context resets for subsequent children
+- **Keyword filters**: Removed overly broad filters ("cuijk", "uit", "hieruit") that blocked archival references like marriage contracts
 
 **GEDCOM Validation:**
 - Use the validation script pattern in commit history to check bidirectional references

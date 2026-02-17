@@ -751,8 +751,8 @@ Hieruit:
         marriage = person.marriages[0]
         assert marriage.spouse_name == "Johanna (Hendrina) de Jong(H)"
 
-        # Should have the child reference
-        assert "V.1" in person.children
+        # Should have the child reference (as tuple with marriage_num)
+        assert ("V.1", 1) in person.children
 
     def test_nn_nomen_nescio_spouse(self):
         """Test that 'NN' (nomen nescio = unknown name) is recognized as valid spouse name"""
@@ -775,8 +775,8 @@ Thomas Jans, ±1660, zie II.1
         assert marriage.spouse_name == "NN"
         assert marriage.spouse_name != "Thomas Jans"
 
-        # Should have the child reference
-        assert "II.1" in person.children
+        # Should have the child reference (as tuple with marriage_num)
+        assert ("II.1", 1) in person.children
 
 
 class TestSurnameWithPreposition:
