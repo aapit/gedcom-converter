@@ -75,7 +75,7 @@ pip install pandas openpyxl pytest
 
 Both converters have comprehensive unit test coverage:
 - **Stamboom converter:** 60 tests in `test_stamboom_parser.py`
-- **Kwartierstaat converter:** 8 tests in `test_kwartierstaat.py`
+- **Kwartierstaat converter:** 12 tests in `test_kwartierstaat.py`
 
 **Running tests:**
 ```bash
@@ -115,6 +115,9 @@ pytest test_kwartierstaat.py --cov=import_kwartierstaat --cov-report=html
 - Date format support: `±1850` (circa), `<1800` (before), `>1900` (after)
 - Place extraction with "Geb." prefix removal
 - Edge cases: year-only, place-only, with/without spaces
+- Name parsing with Dutch prepositions and abbreviations
+- Surname detection: `a/d` (aan de), `v/d` (van de), `van`, `de`, etc.
+- Test cases: "Willems a/d Rooijendijk", "Jansen v/d Berg", "van den Brink"
 
 **IMPORTANT: Always run tests after making changes**
 

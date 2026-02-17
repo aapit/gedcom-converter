@@ -128,9 +128,20 @@ class GedcomGenerator:
                         # Voor Nederlandse namen: check of laatste woord een achternaam is
                         surname_idx = len(name_parts) - 1
 
-                        # Check voor tussenvoegsels die bij achternaam horen
-                        while surname_idx > 0 and name_parts[surname_idx - 1].lower() in ['van', 'de', 'den', 'der', 'van den', 'van de', 'ter', 'te', "'t"]:
-                            surname_idx -= 1
+                        # Check voor afkortingen a/d en v/d (aan de/van de)
+                        # Deze komen meestal na een familienaam en voor een plaatsnaam
+                        # Bijvoorbeeld: "Willems a/d Rooijendijk" -> achternaam start bij "Willems"
+                        for i, part in enumerate(name_parts):
+                            if part.lower() in ['a/d', 'v/d', 'a/de', 'v/de']:
+                                # Achternaam start bij het woord voor de afkorting
+                                if i > 0:
+                                    surname_idx = i - 1
+                                    break
+
+                        # Anders: check voor tussenvoegsels die bij achternaam horen
+                        if surname_idx == len(name_parts) - 1:
+                            while surname_idx > 0 and name_parts[surname_idx - 1].lower() in ['van', 'de', 'den', 'der', 'van den', 'van de', 'ter', 'te', "'t"]:
+                                surname_idx -= 1
 
                         given = " ".join(name_parts[:surname_idx])
                         surname = " ".join(name_parts[surname_idx:])
