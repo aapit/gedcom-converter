@@ -682,10 +682,10 @@ class StamboomParser:
                 # Verwijder referentie nummers en extra spaties
                 spouse_name = re.sub(r'\s*\[\d+\]\s*$', '', spouse_name)
                 spouse_name = re.sub(r'\s*\(\d+\)\s*$', '', spouse_name)
-                # Filter out divorce markers en and patterns die niet een echte naam zijn
-                # "en gesch. van", "en 13-08-1965 gescheiden van", etc.
-                # Match: (optioneel "en") + (optioneel datum) + "gescheiden" + (optioneel "van")
-                if not re.match(r'^(en\s+)?(\d{1,2}[-/]\d{1,2}[-/]\d{2,4}\s+)?(gesch\.?|gescheiden)(\s+van)?$', spouse_name, re.IGNORECASE):
+                # Filter out divorce markers die geen echte naam zijn:
+                # "en gesch. van", "en sch. 18-08-1933 van", "en gescheiden van", etc.
+                # Match: (optioneel "en") + (optioneel datum) + scheidingswoord + (optioneel datum) + (optioneel "van")
+                if not re.match(r'^(en\s+)?(\d{1,2}[-/]\d{1,2}[-/]\d{2,4}\s+)?(sch\.|gesch\.?|gescheiden)(\s+\d{1,2}[-/]\d{1,2}[-/]\d{2,4})?(\s+van)?(\s+.*)?$', spouse_name, re.IGNORECASE):
                     if spouse_name and len(spouse_name) > 2:
                         self.current_marriage.spouse_name = self.normalize_name(spouse_name)
                         self.current_marriage.spouse_info = spouse_name
@@ -776,6 +776,11 @@ class StamboomParser:
                 if clean_name.upper() not in ["NN", "N.N."]:
                     if len(clean_name) < 3 or not re.search(r'[A-Za-z]', clean_name):
                         return
+                    # Skip enkelvoudige Nederlandse voorzetsels/voegwoorden als partnernaam
+                    if clean_name.lower() in {"met", "van", "de", "den", "der", "het", "aan",
+                                              "in", "op", "uit", "bij", "voor", "na", "als",
+                                              "en", "om", "af", "tot", "te"}:
+                        return
 
                 self.current_marriage.spouse_name = self.normalize_name(clean_name)
                 self.current_marriage.spouse_info = line
@@ -815,6 +820,11 @@ class StamboomParser:
                     # Check minimum lengte (met NN exceptie)
                     if clean_name.upper() not in ["NN", "N.N."]:
                         if len(clean_name) < 3 or not re.search(r'[A-Za-z]', clean_name):
+                            return
+                        # Skip enkelvoudige Nederlandse voorzetsels/voegwoorden
+                        if clean_name.lower() in {"met", "van", "de", "den", "der", "het", "aan",
+                                                  "in", "op", "uit", "bij", "voor", "na", "als",
+                                                  "en", "om", "af", "tot", "te"}:
                             return
 
                     # Sla partner naam op
@@ -912,11 +922,12 @@ class StamboomParser:
                 self.child_marriage_context = False  # Reset huwelijk context
             elif re.match(r"^[A-Z•]", line) and not any(
                 keyword in line.lower()
-                for keyword in ["arch.", "beers", "wanroij", "ibid", "error", "generatie", "nageslacht", "http://", "https://", "www.", "(kinderen)"]
+                for keyword in ["arch.", "beers", "wanroij", "ibid", "error", "generatie", "nageslacht",
+                                "http://", "https://", "www.", "(kinderen)", "ik heb", "ik heb gezocht"]
             ):
                 # Filter notitie-achtige regels (te lang, of beginnen met algemene woorden)
                 # Skip regels die beginnen met algemene woorden (niet namen)
-                if re.match(r"^(Zo'n|De|Het|In|Van|Op|Een|Brieven|Archive|Door|Voor)\s", line):
+                if re.match(r"^(Zo'n|De|Het|In|Van|Op|Een|Brieven|Archive|Door|Voor|Ik\s)\s", line):
                     return
 
                 # Skip regels met cijfers gevolgd door woorden (waarschijnlijk notities)
