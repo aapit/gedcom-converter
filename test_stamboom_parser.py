@@ -749,7 +749,7 @@ Hieruit:
 
         # Should have parsed the partner name
         marriage = person.marriages[0]
-        assert marriage.spouse_name == "Johanna (Hendrina) de Jong(H)"
+        assert marriage.spouse_name == "Johanna (Hendrina) de Jong(h)"
 
         # Should have the child reference (as tuple with marriage_num)
         assert ("V.1", 1) in person.children

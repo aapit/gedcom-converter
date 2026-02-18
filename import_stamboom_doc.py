@@ -144,16 +144,29 @@ class StamboomParser:
                 normalized_words.append(normalized)
             # Als het woord volledig in hoofdletters is en langer dan 1 karakter
             elif word_clean.isupper() and len(word_clean) > 1:
-                # Converteer naar title case
+                # Converteer naar title case - gebruik slimme functie die alleen
+                # de eerste letter capitaliseert (Python's .title() capitaliseert ook
+                # na niet-letters zoals haakjes, bijv. WE(E)TELING → We(E)Teling i.p.v. We(e)teling)
+                def _smart_title(s):
+                    result = []
+                    first_alpha = True
+                    for c in s:
+                        if c.isalpha():
+                            result.append(c.upper() if first_alpha else c.lower())
+                            first_alpha = False
+                        else:
+                            result.append(c)
+                    return ''.join(result)
+
                 # Behoud haakjes indien aanwezig
                 if word.startswith("(") and word.endswith(")"):
-                    normalized = "(" + word_clean.title() + ")"
+                    normalized = "(" + _smart_title(word_clean) + ")"
                 elif word.startswith("("):
-                    normalized = "(" + word_clean.title()
+                    normalized = "(" + _smart_title(word_clean)
                 elif word.endswith(")"):
-                    normalized = word_clean.title() + ")"
+                    normalized = _smart_title(word_clean) + ")"
                 else:
-                    normalized = word_clean.title()
+                    normalized = _smart_title(word_clean)
                 normalized_words.append(normalized)
             else:
                 # Behoud origineel als het niet all-caps is
@@ -207,11 +220,19 @@ class StamboomParser:
             parts = text.split(date)
             if parts[0].strip():
                 place = parts[0].strip()
-                # Verwijder eventuele symbolen aan het begin
-                place = re.sub(r"^[*△†▭]\s*", "", place)
+                # Verwijder eventuele symbolen en prefixen aan het begin:
+                # - Levenssymbolen: * △ † ▭
+                # - Schuine streep als separator (bijv. "* / Δ Delft" → "/ Δ Delft")
+                # - "en" prefix (bijv. "en △ Kekerdom" = "en gedoopt Kekerdom")
+                # - "RK" (Rooms-Katholiek)
+                place = re.sub(r"^[*/△†▭Δ]\s*", "", place)
+                place = re.sub(r"^(?:en\s+)?(?:RK\s+)?[△Δ▭]\s*", "", place, flags=re.IGNORECASE)
+                place = re.sub(r"^en\s+", "", place, flags=re.IGNORECASE)
         else:
             place = text.strip()
-            place = re.sub(r"^[*△†▭]\s*", "", place)
+            place = re.sub(r"^[*/△†▭Δ]\s*", "", place)
+            place = re.sub(r"^(?:en\s+)?(?:RK\s+)?[△Δ▭]\s*", "", place, flags=re.IGNORECASE)
+            place = re.sub(r"^en\s+", "", place, flags=re.IGNORECASE)
 
         # Filter ongewenste plaats-woorden
         if place and place.lower() in ["met", "als", "met name"]:
@@ -454,10 +475,17 @@ class StamboomParser:
 
             # Check of er een sterfte symbool (†) op dezelfde regel staat
             death_part = None
+            burial_part = None
             if "†" in rest:
                 parts = rest.split("†", 1)
-                rest = parts[0].strip()
+                rest = parts[0].strip().rstrip(".,")
                 death_part = parts[1].strip()
+            # Check of er een begrafenis symbool (▭) op dezelfde regel staat (zonder †)
+            # Bijv. "* ±1672. ▭ Kekerdom 18-04-1723"
+            elif "▭" in rest:
+                parts = rest.split("▭", 1)
+                rest = parts[0].strip().rstrip(".,")
+                burial_part = parts[1].strip()
             # Split op komma als er een doop symbool in staat
             elif "," in rest and ("△" in rest or "Δ" in rest):
                 parts = rest.split(",")
@@ -502,6 +530,16 @@ class StamboomParser:
                 elif not self.in_children_section:
                     self.current_person.death_place = death_place
                     self.current_person.death_date = death_date
+
+            # Parse begrafenis info als die op dezelfde regel staat (bijv. "* ±1672. ▭ Kekerdom 18-04-1723")
+            if burial_part:
+                burial_place, burial_date = self.parse_place_date(burial_part)
+                if self.in_children_section and self.current_child:
+                    self.current_child.burial_place = burial_place
+                    self.current_child.burial_date = burial_date
+                elif not self.in_children_section and not self.parsing_spouse_info:
+                    self.current_person.burial_place = burial_place
+                    self.current_person.burial_date = burial_date
 
             # Check of er huwelijks info op dezelfde regel staat
             # Bijvoorbeeld: "* ... † ... Tr. plaats datum met"
@@ -1431,10 +1469,24 @@ class StamboomParser:
                             surname = " ".join(surname_parts)
                             f.write(f"1 NAME {given} /{surname}/\n")
                         elif len(parts) >= 3:
-                            # Geen tussenvoegsel, dus slash is achternaam variant
-                            # Eerste woord is voornaam, rest is achternaam
-                            given = parts[0]
-                            surname = " ".join(parts[1:])
+                            # Geen tussenvoegsel - check of laatste woord een standalone achternaam is
+                            # (d.w.z. het is NIET direct na een "/"):
+                            # - "Agnes Rutjes / Rutjens" → parts[-2]="/" → achternaam-variant → given="Agnes", surname="Rutjes / Rutjens"
+                            # - "Marie / Mietje Weteling" → parts[-2]="Mietje" → standalone achternaam → given="Marie / Mietje (Maria)", surname="Weteling"
+                            if parts[-2] == "/":
+                                # Achternaam-variant: eerste woord is voornaam, rest is achternaam
+                                given = parts[0]
+                                surname = " ".join(parts[1:])
+                            else:
+                                # Standalone achternaam: zoek in clean_name
+                                surname = parts[-1]
+                                surname_pos = clean_name.rfind(surname)
+                                if surname_pos > 0:
+                                    given = clean_name[:surname_pos].strip()
+                                else:
+                                    given = " ".join(parts[:-1])
+                            # Vervang "/" in het voornaam-gedeelte door " of " (GEDCOM delimiter-conflict)
+                            given = re.sub(r'\s*/\s*', ' of ', given)
                             f.write(f"1 NAME {given} /{surname}/\n")
                         else:
                             # Fallback naar oude logica
