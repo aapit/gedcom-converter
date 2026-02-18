@@ -805,6 +805,22 @@ class StamboomParser:
                 self._parse_inline_children(hieruit_inline2.group(1))
                 return
 
+            # "Kinderen X, Y, Z" of "Kinderen: X, Y" → kleinkinderen van huidige persoon
+            # Ook: "Plaatsnaam. Kinderen X, Y" (plaatsnaam-notitie + kindlijst)
+            # Deze zijn GEEN directe kinderen van current_person → sla op als notitie bij huidig kind
+            kinderen_line = re.match(r'^(?:.*?\.\s+)?Kinderen:?\s+(\S.*)', line, re.IGNORECASE)
+            if kinderen_line:
+                rest = kinderen_line.group(1).strip()
+                # "Kinderen en kleinkinderen" is een notitie-kop, geen kindlijst
+                if not re.match(r'^en\b', rest, re.IGNORECASE):
+                    target = self.current_child if self.current_child else self.current_person
+                    if target:
+                        target.notes.append(line.strip())
+                return
+            # Kale "Kinderen" regel (geen namen) → skip
+            if re.match(r'^Kinderen[.,]?\s*$', line, re.IGNORECASE):
+                return
+
             # Check of het geboorte/sterfte info is voor het huidige kind, maar met een plaatsnaam vóór de *
             # Bijv: "Cuijk * 27-05-1874, † 02-07-1874" (andere notatie dan "* Cuijk 27-05-1874")
             if self.current_child and '*' in line and not line.startswith('*'):
