@@ -380,8 +380,12 @@ class StamboomParser:
 
         marriage_num = self.current_marriage_num if self.current_marriage_num is not None else 1
         for part in parts:
-            part = part.strip()
+            part = part.strip().rstrip('.,;:').strip()
             if not part or not re.search(r'[A-Za-z]', part):
+                continue
+            # Strip afsluitend haakje met locatie/notitie (bijv. "Marieke (Amsterdam)" → "Marieke")
+            part = re.sub(r'\s*\([^)]*\)\s*$', '', part).strip()
+            if not part:
                 continue
             # Haal geboorte info op als aanwezig (* Roermond 04-05-1993)
             # Naam staat vóór *, geboorteinfo (plaats + datum) staat ná *
@@ -929,6 +933,14 @@ class StamboomParser:
 
                 # Verwijder bullet points
                 child_line = re.sub(r'^[•\-]\s*', '', child_line)
+
+                # In dit document hebben kindnamen altijd een ACHTERNAAM IN HOOFDLETTERS (bijv. "THOMASSEN")
+                # Regels zonder 3+ aaneengesloten hoofdletters zijn notities, geen kindnamen
+                # Bijv. "Gouda." (woonplaats) of "Ongehuwd, huishoudster bij haar broer..."
+                if not re.search(r'[A-Z]{3,}', child_line):
+                    if self.current_child:
+                        self.current_child.notes.append(child_line.rstrip('.,;:').strip())
+                    return
 
                 # Check of dit een naamvariant is van het huidige kind
                 # Naamvariant detectie: als current_child bestaat EN de regel heeft geen symbolen/markers
