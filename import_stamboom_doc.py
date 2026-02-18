@@ -853,6 +853,12 @@ class StamboomParser:
                 if re.search(r'\d{2,}', line) and not re.search(r'[*†△▭]', line) and len(line) < 200:  # 2+ cijfers achter elkaar, geen levensgebeurtenissen, korte regel
                     return
 
+                # Skip straatadressen (bijv. "Roermond Prinses Marijkestr. 5")
+                # Patroon: tekst met een straatafkorting (str., straat, weg, laan, ...) gevolgd door een huisnummer
+                # Geen \b vóór de groep: "str." komt ook voor in samengestelde namen zoals "Marijkestr."
+                if re.search(r'(str\.|straat|weg|laan|plein|kade|dijk|singel|gracht|dreef|boulevard)\s*\d+[a-z]?\s*[.,]?\s*$', line, re.IGNORECASE):
+                    return
+
                 # Skip Nederlandse beroepen (occupations)
                 # Bijvoorbeeld: "Timmerman", "timmerman", "Timmerman (1938)", "landbouwer."
                 line_lower = line.strip().lower()
