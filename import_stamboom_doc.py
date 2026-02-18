@@ -787,8 +787,9 @@ class StamboomParser:
             if marriage_num_match:
                 self.current_marriage_num = int(marriage_num_match.group(1))
             # "Hieruit X, Y, Z" → inline kind-lijst op dezelfde regel
+            # Maar NIET als de regel eindigt op ":" (bijv. "Hieruit (Geneanet):" = sectie-header met bronvermelding)
             hieruit_inline = re.match(r'^Hieruit\s+(\S.+)', line, re.IGNORECASE)
-            if hieruit_inline and not line.startswith("Hieruit:"):
+            if hieruit_inline and not line.startswith("Hieruit:") and not line.rstrip().endswith(":"):
                 self._parse_inline_children(hieruit_inline.group(1))
 
         # Parse kind
@@ -798,8 +799,9 @@ class StamboomParser:
                 return
 
             # "Hieruit X, Y" zonder dubbele punt binnen kinderensectie → inline kindlijst, geen kindnaam
+            # Maar NIET als de regel eindigt op ":" (bijv. "Hieruit (Geneanet):" = sectie-header met bronvermelding)
             hieruit_inline2 = re.match(r'^Hieruit\s+(\S.+)', line, re.IGNORECASE)
-            if hieruit_inline2 and not line.startswith("Hieruit:"):
+            if hieruit_inline2 and not line.startswith("Hieruit:") and not line.rstrip().endswith(":"):
                 self._parse_inline_children(hieruit_inline2.group(1))
                 return
 
