@@ -842,7 +842,7 @@ class StamboomParser:
                 self.child_marriage_context = False  # Reset huwelijk context
             elif re.match(r"^[A-Z•]", line) and not any(
                 keyword in line.lower()
-                for keyword in ["arch.", "beers", "wanroij", "ibid", "error", "generatie", "nageslacht", "http://", "https://", "www."]
+                for keyword in ["arch.", "beers", "wanroij", "ibid", "error", "generatie", "nageslacht", "http://", "https://", "www.", "(kinderen)"]
             ):
                 # Filter notitie-achtige regels (te lang, of beginnen met algemene woorden)
                 # Skip regels die beginnen met algemene woorden (niet namen)
