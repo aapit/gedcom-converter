@@ -1382,6 +1382,10 @@ class StamboomParser:
                     # Verwijder extra haakjes en slashes uit achternaam
                     clean_name = person.name.replace("/(", "/").replace(")/", "/").rstrip("/")
 
+                    # Vervang "/" binnen haakjes door " of " om conflict met GEDCOM naam-delimiter te voorkomen
+                    # Bijv. "(Gerard / Sjra)" → "(Gerard of Sjra)"
+                    clean_name = re.sub(r'\(([^)]*)\)', lambda m: '(' + m.group(1).replace(' / ', ' of ') + ')', clean_name)
+
                     # Split naam maar behoud context van wat binnen/buiten haakjes staat
                     # Zoek het laatste woord buiten haakjes als achternaam
                     # Bijvoorbeeld: "Jan Thomassen (Joannes) (van den Brunckom)" -> achternaam "Thomassen"
