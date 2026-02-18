@@ -257,14 +257,26 @@ class StamboomParser:
             parent_pos = rest.find("zn. van") if "zn. van" in rest else rest.find("dr. van")
             if parent_pos > 0:
                 name_part = rest[:parent_pos].strip()
+                # Verwijder ook een eventueel onafgesloten '(' voor "zn. van"
+                # Bijv. "(zn. van VIII.2)" laat "Naam (" achter
+                name_part = name_part.rstrip('(').strip()
 
         # Verwijder het referentienummer
         if ref_match:
             name_part = re.sub(r"\[\d+\]", "", name_part).strip()
 
-        # Neem alles voor de komma
+        # Neem alles voor de EERSTE komma die NIET binnen haakjes staat
+        # Bijv. "(Remi, Rum) Thomassen, zn." → knipt bij ", zn." maar NIET bij ", Rum"
         if "," in name_part:
-            name_part = name_part.split(",")[0].strip()
+            depth = 0
+            for i, ch in enumerate(name_part):
+                if ch == '(':
+                    depth += 1
+                elif ch == ')':
+                    depth -= 1
+                elif ch == ',' and depth == 0:
+                    name_part = name_part[:i].strip()
+                    break
 
         # Bepaal geslacht
         sex = None
@@ -296,19 +308,31 @@ class StamboomParser:
             father_name = re.sub(r'\s*\(BS\s+[^)]+\)', '', father_name, flags=re.IGNORECASE).strip()
             mother_name = re.sub(r'\s*\(BS\s+[^)]+\)', '', mother_name, flags=re.IGNORECASE).strip()
 
+            # Verwijder geboorte/sterfte info (*, †) uit namen
+            # Bijv. "Jan Wilbers, * Cuyk" → "Jan Wilbers"
+            father_name = re.sub(r',?\s*[*†△▭].*$', '', father_name).strip()
+            mother_name = re.sub(r',?\s*[*†△▭].*$', '', mother_name).strip()
+
             # Verwijder trailing punctuatie die kan overblijven
-            father_name = father_name.rstrip('.,;:')
-            mother_name = mother_name.rstrip('.,;:')
+            father_name = father_name.rstrip('.,;:(')
+            mother_name = mother_name.rstrip('.,;:(')
 
             # Verwijder alles na een punt gevolgd door een hoofdletter of cijfer (nieuwe zin/info)
-            # Bijvoorbeeld: "Anna Catharina Teeuwen. Winkelierster. Molenstraat 84"
-            period_match = re.search(r'\.\s+[A-Z0-9]', mother_name)
+            # Maar ALLEEN buiten haakjes om te voorkomen dat "(tr. Cuijk)" wordt geknipt
+            # Bijv. "Anna Catharina Teeuwen. Winkelierster. Molenstraat 84"
+            mother_name_outside = re.sub(r'\([^)]*\)', '', mother_name)
+            period_match = re.search(r'\.\s+[A-Z0-9]', mother_name_outside)
             if period_match:
                 mother_name = mother_name[:period_match.start() + 1].strip().rstrip('.')
 
-            period_match = re.search(r'\.\s+[A-Z0-9]', father_name)
+            father_name_outside = re.sub(r'\([^)]*\)', '', father_name)
+            period_match = re.search(r'\.\s+[A-Z0-9]', father_name_outside)
             if period_match:
                 father_name = father_name[:period_match.start() + 1].strip().rstrip('.')
+
+            # Verwijder eventueel nog openstaande haakjes
+            father_name = father_name.rstrip('(').strip()
+            mother_name = mother_name.rstrip('(').strip()
 
             # Verwijder eventuele extra info na de naam (zoals beroep, religie, etc.)
             # Stop bij woorden die indiceren dat het extra info is
@@ -857,9 +881,20 @@ class StamboomParser:
                         if death_place or death_date:
                             death_info = (death_place, death_date)
 
-                # Extraheer alleen de naam (alles voor de eerste komma of sterfte symbool)
+                # Extraheer alleen de naam (alles voor de eerste komma BUITEN haakjes, of sterfte symbool)
                 child_name = child_line
-                child_name = re.sub(r",.*$", "", child_name)  # Verwijder alles na komma
+                # Knipt bij eerste komma die NIET binnen haakjes staat (bijv. "Alida (Ida, Ietje)" → behoudt hele bijnaam)
+                depth = 0
+                cut_pos = len(child_name)
+                for ci, ch in enumerate(child_name):
+                    if ch == '(':
+                        depth += 1
+                    elif ch == ')':
+                        depth -= 1
+                    elif ch == ',' and depth == 0:
+                        cut_pos = ci
+                        break
+                child_name = child_name[:cut_pos]
                 child_name = re.sub(r"\s*\d{4}.*$", "", child_name)  # Verwijder jaar
 
                 # Skip als dit leeg is
