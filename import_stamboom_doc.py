@@ -89,7 +89,9 @@ class StamboomParser:
         'dagloner', 'spinner', 'naaister', 'dienstmeid', 'knecht',
         'meid', 'boer', 'landbouwster', 'winkelierster', 'winkelier',
         'vroedvrouw', 'onderwijzer', 'onderwijzeres', 'schoolmeester',
-        'peuterleidster'
+        'peuterleidster', 'politieagent', 'veldwachter', 'gemeenteveldwachter',
+        'rijksveldwachter', 'agent', 'brigadier', 'hoofdagent', 'rijksambtenaar',
+        'ambtenaar', 'klerk', 'kassier', 'werktuigkundige', 'bibliothecaris',
     }
 
     def __init__(self):
@@ -336,12 +338,22 @@ class StamboomParser:
             mother_name = mother_name.rstrip('(').strip()
 
             # Verwijder eventuele extra info na de naam (zoals beroep, religie, etc.)
-            # Stop bij woorden die indiceren dat het extra info is
-            for stop_word in [" bibliothecaris", " winkelierster", " bakker", " boer", " smid", ". rk", ". ng", ". herv"]:
+            # Stop bij bekende beroepen (", bakker" of " bakker" patroon)
+            occupations_pattern = '|'.join(re.escape(occ) for occ in self.DUTCH_OCCUPATIONS)
+            occ_regex = re.compile(rf',?\s+(?:{occupations_pattern})\b.*', re.IGNORECASE)
+            father_name = occ_regex.sub('', father_name).strip()
+            mother_name = occ_regex.sub('', mother_name).strip()
+
+            # Stop ook bij religie-afkortingen
+            for stop_word in [". rk", ". ng", ". herv"]:
                 if stop_word in mother_name.lower():
                     mother_name = mother_name[:mother_name.lower().index(stop_word)].strip()
                 if stop_word in father_name.lower():
                     father_name = father_name[:father_name.lower().index(stop_word)].strip()
+
+            # Slotpunctatie verwijderen (kan overblijven na beroep-strip)
+            father_name = father_name.rstrip('.,;:(').strip()
+            mother_name = mother_name.rstrip('.,;:(').strip()
 
             return father_name, mother_name
 
