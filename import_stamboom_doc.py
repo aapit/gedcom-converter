@@ -88,7 +88,8 @@ class StamboomParser:
         'koopman', 'veehouder', 'veeboer', 'pachter', 'daglooner',
         'dagloner', 'spinner', 'naaister', 'dienstmeid', 'knecht',
         'meid', 'boer', 'landbouwster', 'winkelierster', 'winkelier',
-        'vroedvrouw', 'onderwijzer', 'onderwijzeres', 'schoolmeester'
+        'vroedvrouw', 'onderwijzer', 'onderwijzeres', 'schoolmeester',
+        'peuterleidster'
     }
 
     def __init__(self):
