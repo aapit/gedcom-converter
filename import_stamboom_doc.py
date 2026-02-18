@@ -347,6 +347,66 @@ class StamboomParser:
 
         return None, None
 
+    def _parse_inline_children(self, rest):
+        """Verwerk inline kindnamen na 'Hieruit ' (zonder dubbele punt).
+        Bijv: 'Dieuweke, Menso' of 'Jonne Anne Kateriene * Roermond 04-05-1993'"""
+        if not self.current_person:
+            return
+        # Splits op komma of " en " (maar niet binnen haakjes)
+        parts = []
+        depth = 0
+        current = []
+        i = 0
+        while i < len(rest):
+            ch = rest[i]
+            if ch == '(':
+                depth += 1
+                current.append(ch)
+            elif ch == ')':
+                depth -= 1
+                current.append(ch)
+            elif depth == 0 and ch == ',':
+                parts.append(''.join(current).strip())
+                current = []
+            elif depth == 0 and rest[i:i+4] == ' en ':
+                parts.append(''.join(current).strip())
+                current = []
+                i += 3  # skip " en" (loop adds 1 more)
+            else:
+                current.append(ch)
+            i += 1
+        if current:
+            parts.append(''.join(current).strip())
+
+        marriage_num = self.current_marriage_num if self.current_marriage_num is not None else 1
+        for part in parts:
+            part = part.strip()
+            if not part or not re.search(r'[A-Za-z]', part):
+                continue
+            # Haal geboorte info op als aanwezig (* Roermond 04-05-1993)
+            # Naam staat vóór *, geboorteinfo (plaats + datum) staat ná *
+            birth_info = None
+            if '*' in part:
+                star_pos = part.index('*')
+                birth_match = re.search(r'\*\s*([^,†]+)', part)
+                if birth_match:
+                    birth_str = birth_match.group(1).strip()
+                    bplace, bdate = self.parse_place_date(birth_str)
+                    if bplace or bdate:
+                        birth_info = (bplace, bdate)
+                part = part[:star_pos].strip()
+            if not part or not re.search(r'[A-Za-z]', part):
+                continue
+            child_id = f"{self.current_person.generation_id}_child_{len(self.unnamed_children)+1}"
+            child = Person(child_id, None)
+            child.name = self.normalize_name(part)
+            child.parent_ref = self.current_person.generation_id
+            child.parent_marriage_num = self.current_marriage_num
+            if birth_info:
+                child.birth_place, child.birth_date = birth_info
+            self.unnamed_children.append(child)
+            self.current_person.children.append((child_id, marriage_num))
+
     def parse_line(self, line):
         """Parse een enkele regel"""
         line = line.strip()
@@ -715,7 +775,8 @@ class StamboomParser:
                     return
 
         # Parse kinderen sectie
-        elif line.startswith("Hieruit:") or re.match(r"^Uit\s+\(\d+\)", line):
+        elif line.startswith("Hieruit:") or re.match(r"^Uit\s+\(\d+\)", line) or \
+             (re.match(r'^Hieruit\s+\S', line, re.IGNORECASE) and self.current_person):
             self.in_children_section = True
             self.parsing_spouse_info = False  # Niet meer in partner info sectie
             self.child_marriage_context = False  # Reset huwelijk context
@@ -725,11 +786,21 @@ class StamboomParser:
             marriage_num_match = re.search(r"Uit\s+\((\d+)\)", line)
             if marriage_num_match:
                 self.current_marriage_num = int(marriage_num_match.group(1))
+            # "Hieruit X, Y, Z" → inline kind-lijst op dezelfde regel
+            hieruit_inline = re.match(r'^Hieruit\s+(\S.+)', line, re.IGNORECASE)
+            if hieruit_inline and not line.startswith("Hieruit:"):
+                self._parse_inline_children(hieruit_inline.group(1))
 
         # Parse kind
         elif self.in_children_section:
             # Skip URLs (http://, https://, etc.)
             if line.startswith("http://") or line.startswith("https://"):
+                return
+
+            # "Hieruit X, Y" zonder dubbele punt binnen kinderensectie → inline kindlijst, geen kindnaam
+            hieruit_inline2 = re.match(r'^Hieruit\s+(\S.+)', line, re.IGNORECASE)
+            if hieruit_inline2 and not line.startswith("Hieruit:"):
+                self._parse_inline_children(hieruit_inline2.group(1))
                 return
 
             # Check of het geboorte/sterfte info is voor het huidige kind, maar met een plaatsnaam vóór de *
@@ -918,6 +989,11 @@ class StamboomParser:
                         break
                 child_name = child_name[:cut_pos]
                 child_name = re.sub(r"\s*\d{4}.*$", "", child_name)  # Verwijder jaar
+
+                # Skip als de naam eruitziet als een gedeeltelijke datum na jaar-strip
+                # Bijv. "Cuijk 22-07-" (afkomstig van "Cuijk 22-07-1775 Schepenbanken...")
+                if re.match(r'^[\w\s]+\s+\d{1,2}-\d{2}-\s*$', child_name.strip()):
+                    return
 
                 # Skip als dit leeg is
                 if not child_name.strip():
