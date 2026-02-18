@@ -706,12 +706,11 @@ class StamboomParser:
                     child_marriage.spouse_name = self.normalize_name(clean_name)
                     child_marriage.spouse_info = line
 
-                    # Reset parsing_spouse_info en child_marriage_context
+                    # Reset alles: partner is gevonden, volgende regels zijn nieuwe kinderen
                     self.parsing_spouse_info = False
-                    # Reset current_child zodat volgende namen als nieuwe kinderen worden geparsed
+                    self.child_marriage_context = False
                     self.current_child = None
                     self.current_child_has_baptism = False
-                    # Blijf in child_marriage_context voor filtering van volgende regels
                     return
 
         # Parse kinderen sectie
@@ -731,6 +730,28 @@ class StamboomParser:
             # Skip URLs (http://, https://, etc.)
             if line.startswith("http://") or line.startswith("https://"):
                 return
+
+            # Check of het geboorte/sterfte info is voor het huidige kind, maar met een plaatsnaam vóór de *
+            # Bijv: "Cuijk * 27-05-1874, † 02-07-1874" (andere notatie dan "* Cuijk 27-05-1874")
+            if self.current_child and '*' in line and not line.startswith('*'):
+                star_pos = line.index('*')
+                before_star = line[:star_pos].strip().rstrip(',')
+                # Als het deel vóór * kort is en geen HOOFDLETTERNAAM bevat → geboorte info voor huidig kind
+                if before_star and len(before_star.split()) <= 3 and not re.search(r'[A-Z]{3,}', before_star):
+                    birth_match = re.search(r'\*\s*([^,†]+)', line)
+                    if birth_match:
+                        birth_str = f"{before_star} {birth_match.group(1).strip()}".strip()
+                        place, date = self.parse_place_date(birth_str)
+                        if place or date:
+                            self.current_child.birth_place = place
+                            self.current_child.birth_date = date
+                    if '†' in line:
+                        death_match = re.search(r'†\s*([^,*]+)', line)
+                        if death_match:
+                            death_place, death_date = self.parse_place_date(death_match.group(1).strip())
+                            self.current_child.death_place = death_place
+                            self.current_child.death_date = death_date
+                    return
 
             # Kijk of het een verwijzing naar een kind is
             # "Jan (Joannes) Thomassen, 1703, zie III.1"
