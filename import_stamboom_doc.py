@@ -995,6 +995,7 @@ class StamboomParser:
                         break
                 child_name = child_name[:cut_pos]
                 child_name = re.sub(r"\s*\d{4}.*$", "", child_name)  # Verwijder jaar
+                child_name = child_name.rstrip('.,;:').strip()  # Strip afsluitende interpunctie (bijv. "PELT (Vaals).")
 
                 # Skip als de naam eruitziet als een gedeeltelijke datum na jaar-strip
                 # Bijv. "Cuijk 22-07-" (afkomstig van "Cuijk 22-07-1775 Schepenbanken...")
@@ -1402,16 +1403,21 @@ class StamboomParser:
                         if len(parts_outside) > 1:
                             # Het laatste woord buiten haakjes is de achternaam
                             surname = parts_outside[-1].strip("/()")
-                            # Gebruik originele naam voor voornaam (met haakjes)
-                            # Vind de positie van de achternaam in originele naam
-                            surname_pos = clean_name.rfind(surname)
-                            if surname_pos > 0:
-                                given = clean_name[:surname_pos].strip()
-                                f.write(f"1 NAME {given} /{surname}/\n")
+                            # Veiligheidscheck: als achternaam geen letters bevat (bijv. puur interpunctie),
+                            # schrijf de naam zonder achternaam-markers
+                            if not re.search(r'[A-Za-z]', surname):
+                                f.write(f"1 NAME {clean_name}\n")
                             else:
-                                # Fallback naar eenvoudige split
-                                given = " ".join(parts_outside[:-1])
-                                f.write(f"1 NAME {given} /{surname}/\n")
+                                # Gebruik originele naam voor voornaam (met haakjes)
+                                # Vind de positie van de achternaam in originele naam
+                                surname_pos = clean_name.rfind(surname)
+                                if surname_pos > 0:
+                                    given = clean_name[:surname_pos].strip()
+                                    f.write(f"1 NAME {given} /{surname}/\n")
+                                else:
+                                    # Fallback naar eenvoudige split
+                                    given = " ".join(parts_outside[:-1])
+                                    f.write(f"1 NAME {given} /{surname}/\n")
                         else:
                             f.write(f"1 NAME {clean_name}\n")
 

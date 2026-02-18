@@ -844,5 +844,69 @@ Tr. RK Leuth 25-04-1736 met
                 os.remove(temp_file)
 
 
+class TestTrailingPunctuation:
+    """Test that trailing punctuation in source lines does not end up as a person's surname"""
+
+    def setup_method(self):
+        self.parser = StamboomParser()
+
+    def test_child_with_trailing_period_not_punctuation_surname(self):
+        """Test that 'PELT (Vaals).' does not produce '.' as surname in GEDCOM"""
+        text = """VIII.7 Johannes PELT
+* Vijlen 15-02-1891
+Tr. Vaals 10-04-1920 met
+Maria THOMASSEN
+Hieruit:
+Theodorus Jozef Maria (Theo) PELT (Vaals).
+Remigius Jozef Maria PELT, zie IX.30
+"""
+        self.parser.parse(text)
+
+        import tempfile
+        import os
+        import re
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.ged', delete=False) as f:
+            temp_file = f.name
+
+        try:
+            self.parser.generate_gedcom(temp_file)
+
+            with open(temp_file, 'r', encoding='utf-8') as f:
+                gedcom_content = f.read()
+
+            name_lines = [line for line in gedcom_content.splitlines() if line.startswith("1 NAME")]
+
+            # No person should have a punctuation-only surname (no letters between /.../)
+            for name_line in name_lines:
+                surname_match = re.search(r'/([^/]+)/', name_line)
+                if surname_match:
+                    surname = surname_match.group(1)
+                    assert re.search(r'[A-Za-z]', surname), \
+                        f"Surname '{surname}' contains no letters in: {name_line}"
+
+            # Theo Pelt should have 'Pelt' as surname, not '.'
+            assert any("Theo" in line and "/Pelt/" in line for line in name_lines), \
+                "Expected Theo Pelt to have surname 'Pelt'"
+
+        finally:
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
+
+    def test_child_name_trailing_period_stripped(self):
+        """Test that trailing period is stripped from child name during parsing"""
+        text = """I.1 Jan JANSEN
+Tr. 1900 met
+Maria SMIT
+Hieruit:
+Pieter JANSEN.
+"""
+        self.parser.parse(text)
+        child_names = [c.name for c in self.parser.unnamed_children if c.parent_ref == "I.1"]
+        assert len(child_names) == 1
+        assert not child_names[0].endswith("."), \
+            f"Child name should not end with '.': {child_names[0]}"
+        assert "Pieter" in child_names[0]
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
