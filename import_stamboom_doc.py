@@ -327,6 +327,10 @@ class StamboomParser:
             father_name = parent_match.group(1).strip()
             mother_name = parent_match.group(2).strip()
 
+            # Verwijder referentienummers [xx] uit namen
+            father_name = re.sub(r'\s*\[\d+\]\s*', '', father_name).strip()
+            mother_name = re.sub(r'\s*\[\d+\]\s*', '', mother_name).strip()
+
             # Verwijder BS (burgerlijke stand) referenties
             # Bijvoorbeeld: "(BS Bemmel 1923 O 69)" of "(Bs Beuningen 1911 O 45)"
             # Inclusief eventuele spatie ervoor
