@@ -92,6 +92,7 @@ class StamboomParser:
         'peuterleidster', 'politieagent', 'veldwachter', 'gemeenteveldwachter',
         'rijksveldwachter', 'agent', 'brigadier', 'hoofdagent', 'rijksambtenaar',
         'ambtenaar', 'klerk', 'kassier', 'werktuigkundige', 'bibliothecaris',
+        'aannemer',
     }
 
     def __init__(self):
