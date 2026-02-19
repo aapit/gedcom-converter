@@ -121,6 +121,9 @@ class GedcomGenerator:
 
                 # Format naam als GEDCOM: voornaam /achternaam/
                 name = person['name']
+                # Strip omringende brackets (onzekerheidsmarkeringen in de bron, bijv. "[Wouter van Wersterwijck]")
+                if name and isinstance(name, str) and name.strip().startswith('[') and name.strip().endswith(']'):
+                    name = name.strip()[1:-1].strip()
                 if name and isinstance(name, str):
                     name_parts = name.split()
                     if len(name_parts) > 1:
