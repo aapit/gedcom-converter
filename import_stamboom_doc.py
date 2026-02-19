@@ -1549,9 +1549,12 @@ class StamboomParser:
                             # - "Agnes Rutjes / Rutjens" → parts[-2]="/" → achternaam-variant → given="Agnes", surname="Rutjes / Rutjens"
                             # - "Marie / Mietje Weteling" → parts[-2]="Mietje" → standalone achternaam → given="Marie / Mietje (Maria)", surname="Weteling"
                             if parts[-2] == "/":
-                                # Achternaam-variant: eerste woord is voornaam, rest is achternaam
-                                given = parts[0]
-                                surname = " ".join(parts[1:])
+                                # Achternaam-variant: het woord vóór de EERSTE "/" is het begin van de achternaam
+                                # Bijv. "Agnes Rutjes / Rutjens"        → given="Agnes",        surname="Rutjes / Rutjens"
+                                # Bijv. "Anna Geertruijda Scheepers / Schepers" → given="Anna Geertruijda", surname="Scheepers / Schepers"
+                                first_slash_idx = parts.index("/")
+                                given = " ".join(parts[:first_slash_idx - 1])
+                                surname = " ".join(parts[first_slash_idx - 1:])
                             else:
                                 # Standalone achternaam: zoek in clean_name
                                 surname = parts[-1]
