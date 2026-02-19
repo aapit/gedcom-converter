@@ -1004,9 +1004,21 @@ class StamboomParser:
                 child_line = re.sub(r'^[•\-]\s*', '', child_line)
 
                 # In dit document hebben kindnamen altijd een ACHTERNAAM IN HOOFDLETTERS (bijv. "THOMASSEN")
-                # Regels zonder 3+ aaneengesloten hoofdletters zijn notities, geen kindnamen
+                # Regels zonder 3+ aaneengesloten hoofdletters VOOR DE EERSTE KOMMA zijn notities, geen kindnamen
                 # Bijv. "Gouda." (woonplaats) of "Ongehuwd, huishoudster bij haar broer..."
-                if not re.search(r'[A-Z]{3,}', child_line):
+                # Check alleen het naamgedeelte (voor komma buiten haakjes) om archiefcodes na komma te negeren
+                # Bijv. "RK △ Duiven 28-01-1780, gett. ... (DTB Duiven)" → "DTB" na komma triggerde ten onrechte
+                _name_check = child_line
+                _depth_nc = 0
+                for _i_nc, _c_nc in enumerate(child_line):
+                    if _c_nc == '(':
+                        _depth_nc += 1
+                    elif _c_nc == ')':
+                        _depth_nc -= 1
+                    elif _c_nc == ',' and _depth_nc == 0:
+                        _name_check = child_line[:_i_nc]
+                        break
+                if not re.search(r'[A-Z]{3,}', _name_check):
                     if self.current_child:
                         self.current_child.notes.append(child_line.rstrip('.,;:').strip())
                     return
@@ -1093,7 +1105,9 @@ class StamboomParser:
                         cut_pos = ci
                         break
                 child_name = child_name[:cut_pos]
-                child_name = re.sub(r"\s*\d{4}.*$", "", child_name)  # Verwijder jaar
+                # Strip levenssymbolen en alles erna uit de naam (bijv. "Wilhelmina EUJEN * ±1722" → "Wilhelmina EUJEN")
+                child_name = re.sub(r"\s*[*△Δ†▭]\s*.*$", "", child_name)
+                child_name = re.sub(r"\s*\d{4}.*$", "", child_name)  # Verwijder eventueel resterend jaar
                 child_name = child_name.rstrip('.,;:').strip()  # Strip afsluitende interpunctie (bijv. "PELT (Vaals).")
 
                 # Skip als de naam eruitziet als een gedeeltelijke datum na jaar-strip
