@@ -807,9 +807,9 @@ Tr. RK Leuth 25-04-1736 met
             with open(temp_file, 'r', encoding='utf-8') as f:
                 gedcom_content = f.read()
 
-            # Should have "Walravius / Walramus" as given name and "van Benthum" as surname
-            # GEDCOM format: "1 NAME Walravius / Walramus /van Benthum/"
-            assert "1 NAME Walravius / Walramus /van Benthum/" in gedcom_content
+            # Should have "Walravius of Walramus" as given name and "van Benthum" as surname
+            # "/" in given name replaced by "of" to avoid GEDCOM surname delimiter conflict
+            assert "1 NAME Walravius of Walramus /van Benthum/" in gedcom_content
 
             # Should NOT have the old incorrect format where "/" is in surname
             assert "1 NAME Walravius // Walramus van Benthum/" not in gedcom_content

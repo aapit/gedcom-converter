@@ -241,6 +241,9 @@ class StamboomParser:
 
         # Trim trailing commas en symbolen
         if place:
+            # Verwijder doop-suffix achteraan (bijv. "Nieuwe Kraayert, Δ RK" of "Ovezande ±1801, Δ Ovezande")
+            # Alles vanaf ", Δ" of ", △" is doop-info, niet geboorteplaats
+            place = re.sub(r',?\s*(?:[A-Z]{2}\s+)?[△Δ].*$', '', place).strip()
             place = place.rstrip(",.;-<>")
             place = place.lstrip("<>")
             # Verwijder lege plaatsen
@@ -1448,9 +1451,12 @@ class StamboomParser:
                     # Verwijder extra haakjes en slashes uit achternaam
                     clean_name = person.name.replace("/(", "/").replace(")/", "/").rstrip("/")
 
+                    # Verwijder referentienummers [xxx] en [xxx=yyy] uit naam
+                    clean_name = re.sub(r'\s*\[\d+(?:=\d+)?\]\s*', ' ', clean_name).strip()
+
                     # Vervang "/" binnen haakjes door " of " om conflict met GEDCOM naam-delimiter te voorkomen
-                    # Bijv. "(Gerard / Sjra)" → "(Gerard of Sjra)"
-                    clean_name = re.sub(r'\(([^)]*)\)', lambda m: '(' + m.group(1).replace(' / ', ' of ') + ')', clean_name)
+                    # Bijv. "(Gerard / Sjra)" → "(Gerard of Sjra)", "(Toon/Ton)" → "(Toon of Ton)"
+                    clean_name = re.sub(r'\(([^)]*)\)', lambda m: '(' + m.group(1).replace(' / ', ' of ').replace('/', ' of ') + ')', clean_name)
 
                     # Split naam maar behoud context van wat binnen/buiten haakjes staat
                     # Zoek het laatste woord buiten haakjes als achternaam
@@ -1485,6 +1491,8 @@ class StamboomParser:
                             surname_parts = parts[surname_start_idx:]
                             given = " ".join(given_parts)
                             surname = " ".join(surname_parts)
+                            # Vervang "/" in het voornaam-gedeelte door " of " (GEDCOM delimiter-conflict)
+                            given = re.sub(r'\s*/\s*', ' of ', given)
                             f.write(f"1 NAME {given} /{surname}/\n")
                         elif len(parts) >= 3:
                             # Geen tussenvoegsel - check of laatste woord een standalone achternaam is
