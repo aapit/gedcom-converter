@@ -1456,6 +1456,8 @@ class StamboomParser:
 
                     # Verwijder alles binnen haakjes voor achternaam detectie
                     name_without_parens = re.sub(r'\([^)]*\)', '', clean_name).strip()
+                    # Strip afsluitende interpunctie (bijv. "TRIJSELAAR." → "Trijselaar")
+                    name_without_parens = name_without_parens.rstrip(".,;:")
 
                     # Check of er een "/" voorkomt in de naam (variant achternamen of voornamen)
                     # Bijvoorbeeld: "Agnes Rutjes / Rutjens" (achternaam variant)
