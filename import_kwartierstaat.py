@@ -125,6 +125,18 @@ class GedcomGenerator:
                 if name and isinstance(name, str) and name.strip().startswith('[') and name.strip().endswith(']'):
                     name = name.strip()[1:-1].strip()
                 if name and isinstance(name, str):
+                    # Vervang afkorting "v" (standalone) door "van" voor achternamen
+                    # Bijv. "Jan Cornelis v Hove" → "Jan Cornelis van Hove"
+                    name = re.sub(r'(?<!\w)v(?!\w)(?=\s+[A-Z])', 'van', name)
+
+                    # Behandel " /Variant" notatie (spatie-slash, geen spatie erna)
+                    # Dit is een achternaamvariant, bijv. "van Hove /Hoogkamer" → surname="van Hove of Hoogkamer"
+                    surname_variant = None
+                    variant_match = re.search(r'\s+/([A-Z][^\s/]*)$', name)
+                    if variant_match:
+                        surname_variant = variant_match.group(1)
+                        name = name[:variant_match.start()].strip()
+
                     name_parts = name.split()
                     if len(name_parts) > 1:
                         # Laatste woord is achternaam (tenzij het een tussenvoegsel is)
@@ -148,6 +160,10 @@ class GedcomGenerator:
 
                         given = " ".join(name_parts[:surname_idx])
                         surname = " ".join(name_parts[surname_idx:])
+
+                        # Voeg achternaamvariant toe (uit "/Variant" notatie eerder geëxtraheerd)
+                        if surname_variant:
+                            surname = f"{surname} of {surname_variant}"
 
                         # Verwijder "/" uit voornamen (GEDCOM gebruikt / als surname delimiter)
                         # Vervang "/" door "of" voor variant voornamen
