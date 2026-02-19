@@ -325,10 +325,39 @@ class StamboomParser:
         # Patroon: "dr. van Benignus Joseph Coppens en Cornelia Francisca Xaveria Story"
         # Of: "zn. van [vader] en [moeder]"
 
-        parent_match = re.search(r"(?:zn\.|dr\.)\s+van\s+(.+?)\s+en\s+(.+?)(?:,|$)", spouse_info, re.IGNORECASE)
+        # Zoek "zn. van" / "dr. van" en splits daarna op het eerste " en " BUITEN haakjes
+        # Bijv: "Priem (landman en schepen van Ovezande) en Maria" → vader=Priem (...), moeder=Maria
+        van_match = re.search(r"(?:zn\.|dr\.)\s+van\s+", spouse_info, re.IGNORECASE)
+        if not van_match:
+            return None, None
+        rest_after_van = spouse_info[van_match.end():]
+        _depth_sp = 0
+        _en_pos = None
+        for _i_sp, _c_sp in enumerate(rest_after_van):
+            if _c_sp == '(':
+                _depth_sp += 1
+            elif _c_sp == ')':
+                _depth_sp -= 1
+            elif _depth_sp == 0 and rest_after_van[_i_sp:_i_sp+4] == ' en ':
+                _en_pos = _i_sp
+                break
+        parent_match = _en_pos is not None  # use as boolean flag
         if parent_match:
-            father_name = parent_match.group(1).strip()
-            mother_name = parent_match.group(2).strip()
+            father_name = rest_after_van[:_en_pos].strip()
+            _mother_rest = rest_after_van[_en_pos+4:]
+            # Trim moeder tot eerste komma buiten haakjes
+            _depth_m = 0
+            _comma_pos = len(_mother_rest)
+            for _j_m, _cm in enumerate(_mother_rest):
+                if _cm == '(':
+                    _depth_m += 1
+                elif _cm == ')':
+                    _depth_m -= 1
+                elif _cm == ',' and _depth_m == 0:
+                    _comma_pos = _j_m
+                    break
+            mother_name = _mother_rest[:_comma_pos].strip()
+        if parent_match:
 
             # Verwijder referentienummers [xx] uit namen
             father_name = re.sub(r'\s*\[\d+\]\s*', '', father_name).strip()
@@ -372,6 +401,12 @@ class StamboomParser:
             occ_regex = re.compile(rf',?\s+(?:{occupations_pattern})\b.*', re.IGNORECASE)
             father_name = occ_regex.sub('', father_name).strip()
             mother_name = occ_regex.sub('', mother_name).strip()
+
+            # Strip ook parenthetical beroepsomschrijvingen (bijv. "(landman en schepen van Ovezande)")
+            # Deze worden niet gevangen door occ_regex omdat het beroep na "(" staat, niet na spatie
+            occ_paren_regex = re.compile(rf'\s*\([^)]*(?:{occupations_pattern})[^)]*\)', re.IGNORECASE)
+            father_name = occ_paren_regex.sub('', father_name).strip()
+            mother_name = occ_paren_regex.sub('', mother_name).strip()
 
             # Stop ook bij religie-afkortingen
             for stop_word in [". rk", ". ng", ". herv"]:
