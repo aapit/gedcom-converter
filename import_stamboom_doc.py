@@ -114,6 +114,12 @@ class StamboomParser:
         if not name:
             return name
 
+        # Enkel ALL-CAPS woord zonder voornaam is altijd een achternaam (bijv. "BELLEMANS", "HOUBEN")
+        # Bewaar de ALL-CAPS vorm zodat de GEDCOM-schrijver het als achternaam kan herkennen
+        words = name.split()
+        if len(words) == 1 and words[0].isupper() and len(words[0]) > 2:
+            return name  # Ongewijzigd teruggeven: "BELLEMANS" blijft "BELLEMANS"
+
         # Speciale afkortingen die altijd in caps moeten blijven
         KEEP_CAPS = {"NN", "N.N."}
 
@@ -143,6 +149,10 @@ class StamboomParser:
                 else:
                     normalized = word_clean.lower()
                 normalized_words.append(normalized)
+            # Initialen-patroon: één of meer hoofdletter-punt-combinaties (bijv. "A.W.", "J.P.M.")
+            # Altijd in hoofdletters bewaren — niet naar title case converteren
+            elif re.match(r'^([A-Z]\.)+$', word_clean):
+                normalized_words.append(word)
             # Als het woord volledig in hoofdletters is en langer dan 1 karakter
             elif word_clean.isupper() and len(word_clean) > 1:
                 # Converteer naar title case - gebruik slimme functie die alleen
@@ -293,6 +303,15 @@ class StamboomParser:
         if ref_match:
             name_part = re.sub(r"\[\d+\]", "", name_part).strip()
 
+        # Detecteer omgekeerde naamvolgorde: "ACHTERNAAM, Voornamen"
+        # Bijv. "COPPENS, Wilhelmina Johanna" → herorden naar "Wilhelmina Johanna COPPENS"
+        if "," in name_part:
+            _first_comma = name_part.index(',')
+            _before_comma = name_part[:_first_comma].strip()
+            _after_comma = name_part[_first_comma + 1:].strip()
+            if re.match(r'^[A-Z]{2,}$', _before_comma) and _after_comma:
+                name_part = f"{_after_comma} {_before_comma}"
+
         # Neem alles voor de EERSTE komma die NIET binnen haakjes staat
         # Bijv. "(Remi, Rum) Thomassen, zn." → knipt bij ", zn." maar NIET bij ", Rum"
         if "," in name_part:
@@ -381,13 +400,16 @@ class StamboomParser:
             # Verwijder alles na een punt gevolgd door een hoofdletter of cijfer (nieuwe zin/info)
             # Maar ALLEEN buiten haakjes om te voorkomen dat "(tr. Cuijk)" wordt geknipt
             # Bijv. "Anna Catharina Teeuwen. Winkelierster. Molenstraat 84"
+            # Negatieve lookbehind (?<![A-Z]) voorkomt dat initialen worden geknipt:
+            # "A.W. Lensing" → "W." is een initiaal (hoofdletter vóór punt) → GEEN match
+            # "Teeuwen. Winkelierster" → "n." is een woordeinde (kleine letter vóór punt) → WEL match
             mother_name_outside = re.sub(r'\([^)]*\)', '', mother_name)
-            period_match = re.search(r'\.\s+[A-Z0-9]', mother_name_outside)
+            period_match = re.search(r'(?<![A-Z])\.\s+[A-Z0-9]', mother_name_outside)
             if period_match:
                 mother_name = mother_name[:period_match.start() + 1].strip().rstrip('.')
 
             father_name_outside = re.sub(r'\([^)]*\)', '', father_name)
-            period_match = re.search(r'\.\s+[A-Z0-9]', father_name_outside)
+            period_match = re.search(r'(?<![A-Z])\.\s+[A-Z0-9]', father_name_outside)
             if period_match:
                 father_name = father_name[:period_match.start() + 1].strip().rstrip('.')
 
@@ -494,7 +516,8 @@ class StamboomParser:
             return
 
         # Check of dit een nieuwe persoon is (met optionele punt en spatie: "VII.5.", "VII.5 " of "VII. 5. ")
-        if re.match(r"^[IVX]+\.\s*\d+\.?\s+", line):
+        # Sluit "VII.3 ZIE JAEGERS" stijl kruisverwijzingen uit (beginnen met ZIE na het ID)
+        if re.match(r"^[IVX]+\.\s*\d+\.?\s+", line) and not re.match(r"^[IVX]+\.\s*\d+\.?\s+ZIE\b", line, re.IGNORECASE):
             # Sla vorige persoon op
             if self.current_person:
                 self.persons[self.current_person.generation_id] = self.current_person
@@ -604,16 +627,26 @@ class StamboomParser:
 
         # Parse gedoopt (△ of Δ)
         elif line.startswith("△") or line.startswith("Δ"):
-            # In kinderen sectie: markeer dat current_child een doop heeft
+            # In kinderen sectie: markeer dat current_child een doop heeft en sla info op
             if self.in_children_section and self.current_child:
                 self.current_child_has_baptism = True
                 # Reset child_marriage_context omdat Δ altijd een nieuw kind aangeeft
                 self.child_marriage_context = False
                 self.child_marriage_lines_seen = 0
-                # We kunnen ook de doopinfo opslaan voor het kind
-                # (maar negeer verder parsen van details in kinderen sectie)
-            # Negeer doop data details in kinderen sectie of partner info sectie
-            if not self.in_children_section and not self.parsing_spouse_info:
+                # Sla doopinfo op voor het kind
+                rest = line[1:].strip()
+                if "gett." in rest or "get." in rest:
+                    parts = re.split(r",?\s*gett?\.?\s*", rest)
+                    if parts:
+                        place, date = self.parse_place_date(parts[0])
+                        self.current_child.baptism_place = place
+                        self.current_child.baptism_date = date
+                else:
+                    place, date = self.parse_place_date(rest)
+                    self.current_child.baptism_place = place
+                    self.current_child.baptism_date = date
+            # Negeer doop data details in partner info sectie (kinderen al verwerkt hierboven)
+            elif not self.in_children_section and not self.parsing_spouse_info:
                 rest = line[1:].strip()
                 # Format: "RK Sint Anthonis 26-08-1707, gett. Derick Jans en Joanna Jans"
                 if "gett." in rest or "get." in rest:
@@ -905,6 +938,11 @@ class StamboomParser:
             if line.startswith("http://") or line.startswith("https://"):
                 return
 
+            # Skip cross-reference regels als "VII.3 ZIE JAEGERS" die niet als persoonshoofd worden herkend
+            # (omdat de ZIE-exclusie ze doorlaat naar de kinderen-sectie)
+            if re.match(r"^[IVX]+\.\s*\d+\.?\s+ZIE\b", line, re.IGNORECASE):
+                return
+
             # "Hieruit X, Y" zonder dubbele punt binnen kinderensectie → inline kindlijst, geen kindnaam
             # Maar NIET als de regel eindigt op ":" (bijv. "Hieruit (Geneanet):" = sectie-header met bronvermelding)
             hieruit_inline2 = re.match(r'^Hieruit\s+(\S.+)', line, re.IGNORECASE)
@@ -923,6 +961,9 @@ class StamboomParser:
                     target = self.current_child if self.current_child else self.current_person
                     if target:
                         target.notes.append(line.strip())
+                # Zorg dat child_marriage_context altijd gereset wordt (bijv. lang archief-tekst
+                # die toevallig "Kinderen Hieruit" bevat mag geen context laten hangen)
+                self.child_marriage_context = False
                 return
             # Kale "Kinderen" regel (geen namen) → skip
             if re.match(r'^Kinderen[.,]?\s*$', line, re.IGNORECASE):
@@ -1014,8 +1055,14 @@ class StamboomParser:
                             parent_surname = name_parts[-1].upper()
 
                     # Check of deze regel de familie achternaam bevat
+                    # Maar lange regels (> 150 tekens) zijn archiefreferenties, nooit kindnamen
                     is_likely_child = False
-                    if parent_surname and parent_surname in line.upper():
+                    if len(line) > 150:
+                        # Archiefregel bevat mogelijk de familienaam als bijlage-vermelding
+                        # → reset context en sla over
+                        self.child_marriage_context = False
+                        return
+                    elif parent_surname and parent_surname in line.upper():
                         is_likely_child = True
                     elif "nageslacht" in line.lower():
                         # Dit is een nieuwe sectie, stop met kinderen parsen
@@ -1054,9 +1101,40 @@ class StamboomParser:
                         _name_check = child_line[:_i_nc]
                         break
                 if not re.search(r'[A-Z]{3,}', _name_check):
-                    if self.current_child:
-                        self.current_child.notes.append(child_line.rstrip('.,;:').strip())
-                    return
+                    # Plaatsnaamnotaties eindigen met een punt (bijv. "Gouda.", "Brooklyn – New York.")
+                    # Kindnamen eindigen nooit met een punt → als notitie opslaan
+                    if child_line.rstrip().endswith('.'):
+                        if self.current_child:
+                            self.current_child.notes.append(child_line.rstrip('.,;:').strip())
+                        return
+                    # Ook Title Case namen accepteren
+                    _words_only = re.sub(r'\([^)]*\)', '', _name_check).split()
+                    _words_only = [w.rstrip('.,;:') for w in _words_only if w.rstrip('.,;:')]
+                    if len(_words_only) >= 2:
+                        # Meerdere woorden: laatste moet met hoofdletter beginnen
+                        if not _words_only[-1][:1].isupper():
+                            if self.current_child:
+                                self.current_child.notes.append(child_line.rstrip('.,;:').strip())
+                            return
+                    elif len(_words_only) == 1:
+                        # Enkel woord: alleen als het volledig alfabetisch is (bijv. "Rudolphus", "Joanna")
+                        # Dit onderscheidt voornamen van cijfer-/leesteken-strings
+                        if not re.match(r'^[A-Z][a-zA-Z]{2,}$', _words_only[0]):
+                            if self.current_child:
+                                self.current_child.notes.append(child_line.rstrip('.,;:').strip())
+                            return
+                        # Bekende niet-namen: burgerlijke staat (bijv. "Ongehuwd, huishoudster...")
+                        # Na bracket-aware komma-split blijft alleen "Ongehuwd" over → geen kindnaam
+                        _CIVIL_STATUS = {'ongehuwd', 'gehuwd', 'weduwe', 'weduwnaar',
+                                         'gescheiden', 'ongetrouwd', 'celibatair'}
+                        if _words_only[0].lower() in _CIVIL_STATUS:
+                            if self.current_child:
+                                self.current_child.notes.append(child_line.rstrip('.,;:').strip())
+                            return
+                    else:
+                        if self.current_child:
+                            self.current_child.notes.append(child_line.rstrip('.,;:').strip())
+                        return
 
                 # Check of dit een naamvariant is van het huidige kind
                 # Naamvariant detectie: als current_child bestaat EN de regel heeft geen symbolen/markers
@@ -1086,13 +1164,22 @@ class StamboomParser:
                                 variant_surname = variant_parts[-1].upper()
 
                                 # Als achternamen overeenkomen OF beide namen HOOFDLETTERS bevatten (KEIJZERS stijl)
-                                # dan is het waarschijnlijk een variant
-                                if current_surname == variant_surname or (
+                                # dan is het waarschijnlijk een variant — maar alleen als de voornaam
+                                # met dezelfde letter begint (Thomas/Thoon ✓, Thomas/Maria ✗)
+                                surname_match = current_surname == variant_surname or (
                                     any(c.isupper() for c in current_surname if c.isalpha()) and
                                     any(c.isupper() for c in variant_surname if c.isalpha()) and
                                     len(variant_parts) >= 2  # Minimaal voornaam + achternaam
-                                ):
-                                    is_name_variant = True
+                                )
+                                if surname_match:
+                                    cfw = current_name_parts[0].upper()
+                                    vfw = variant_parts[0].upper()
+                                    # Eén voornaam moet een prefix zijn van de ander (min. 3 tekens)
+                                    # Bijv. "Tom" is prefix van "Thomas" → variant ✓
+                                    # Maar "Thomas" en "Thoon" zijn geen elkaars prefix → aparte personen ✓
+                                    if (len(cfw) >= 3 and len(vfw) >= 3 and
+                                            (cfw.startswith(vfw) or vfw.startswith(cfw))):
+                                        is_name_variant = True
 
                 if is_name_variant:
                     # Voeg deze naamvariant toe aan het huidige kind als notitie
@@ -1521,7 +1608,10 @@ class StamboomParser:
                     # Check of er een "/" voorkomt in de naam (variant achternamen of voornamen)
                     # Bijvoorbeeld: "Agnes Rutjes / Rutjens" (achternaam variant)
                     # Of: "Walravius / Walramus van Benthum" (voornaam variant + achternaam)
-                    if " / " in name_without_parens:
+                    if " / " in name_without_parens or re.search(r'\S/\S|\S/', name_without_parens):
+                        # Normaliseer slash-spaties: bijv. "Janse /Jansen" → "Janse / Jansen"
+                        # zodat parts[-2] altijd "/" is bij achternaam-varianten
+                        name_without_parens = re.sub(r'\s*/\s*', ' / ', name_without_parens).strip()
                         parts = name_without_parens.split()
 
                         # Check of er een Nederlands tussenvoegsel voorkomt (van, de, den, etc.)
@@ -1595,7 +1685,25 @@ class StamboomParser:
                                     given = " ".join(parts_outside[:-1])
                                     f.write(f"1 NAME {given} /{surname}/\n")
                         else:
-                            f.write(f"1 NAME {clean_name}\n")
+                            # Enkel woord: controleer of het ALL-CAPS is (= achternaam zonder voornaam)
+                            if clean_name.isupper() and len(clean_name) > 2:
+                                surname = clean_name.capitalize()
+                                # Gebruik capitalize() niet voor namen met meer dan 1 hoofdletter-segment
+                                # (bijv. "McGregor"), maar voor standaard NL achternamen volstaat het
+                                def _smart_title_local(s):
+                                    result = []
+                                    first_alpha = True
+                                    for c in s:
+                                        if c.isalpha():
+                                            result.append(c.upper() if first_alpha else c.lower())
+                                            first_alpha = False
+                                        else:
+                                            result.append(c)
+                                    return ''.join(result)
+                                surname = _smart_title_local(clean_name)
+                                f.write(f"1 NAME /{surname}/\n")
+                            else:
+                                f.write(f"1 NAME {clean_name}\n")
 
                 # Geslacht
                 if person.sex:
