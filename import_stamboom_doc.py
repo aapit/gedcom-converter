@@ -102,6 +102,7 @@ class StamboomParser:
         self.in_children_section = False
         self.current_marriage_num = 0
         self.parsing_spouse_info = False  # True wanneer we partner info aan het parsen zijn
+        self.met_seen = False  # True nadat "met" is gezien na een Tr.-regel (partner volgt daarna)
         self.unnamed_children = []  # Kinderen zonder generatie ID
         self.current_child = None  # Huidig kind zonder generatie ID
         self.current_child_has_baptism = False  # True als we een Δ hebben gezien voor current_child
@@ -532,6 +533,7 @@ class StamboomParser:
             self.current_marriage = None
             self.in_children_section = False
             self.parsing_spouse_info = False
+            self.met_seen = False
             self.current_marriage_num = 0
             self.current_child = None
             self.child_marriage_context = False
@@ -834,6 +836,7 @@ class StamboomParser:
             self.current_person.marriages.append(self.current_marriage)
             self.in_children_section = False
             self.parsing_spouse_info = True  # We gaan nu partner info parsen
+            self.met_seen = bool(re.search(r'\bmet\b', line, re.IGNORECASE))
 
             # Parse datum en plaats
             # "Otr. / tr. als jongeman  NG Beers 23-04 / 07-05-1702"
@@ -951,11 +954,19 @@ class StamboomParser:
                 if clean_name.upper() not in ["NN", "N.N."]:
                     if len(clean_name) < 3 or not re.search(r'[A-Za-z]', clean_name):
                         return
+                    # "met" op een eigen regel is het signaal dat de partner naam volgt
+                    if clean_name.lower() == "met":
+                        self.met_seen = True
+                        return
                     # Skip enkelvoudige Nederlandse voorzetsels/voegwoorden als partnernaam
-                    if clean_name.lower() in {"met", "van", "de", "den", "der", "het", "aan",
+                    if clean_name.lower() in {"van", "de", "den", "der", "het", "aan",
                                               "in", "op", "uit", "bij", "voor", "na", "als",
                                               "en", "om", "af", "tot", "te"}:
                         return
+
+                # Wacht tot "met" is gezien voordat we een partnernaam accepteren
+                if not self.met_seen:
+                    return
 
                 self.current_marriage.spouse_name = self.normalize_name(clean_name)
                 self.current_marriage.spouse_info = line

@@ -1387,5 +1387,66 @@ class TestDuplicateChildRef:
                 os.remove(temp_file)
 
 
+class TestMetSeenGuard:
+    """Regressietests voor de 'met_seen' vlag die voorkomt dat archief-notities
+    vóór het 'met'-sleutelwoord als partnernaam worden opgeslagen.
+
+    Scenario: Tr.-regel zonder 'met', gevolgd door archief-notities, dan 'met'
+    op een eigen regel, dan de echte partnernaam.
+    """
+
+    def setup_method(self):
+        self.parser = StamboomParser()
+
+    def test_archival_note_not_stored_as_spouse(self):
+        """Archief-inschrijving vóór 'met' mag niet als partnernaam worden opgeslagen."""
+        text = (
+            "II.1 Aldegondis RUTJES, dr. van I.1\n"
+            "Tr. Ned. Ger. Kekerdom 01-11-1725 (DTB Kekerdom, nr. 1) Gendt,Ned.Ger., 1725-14-Oct\n"
+            "Ingeschreven Otto Lintsen I.M.van Cranenburg en Aeltjen Rutgers I.D. beijde wonende in de Erlekom.\n"
+            "Den 4 Nov;Publijk in onse kerck gecopuleert.\n"
+            "met\n"
+            "Otto LINTZE / LINTSEN / LINSEN / LEENSEN\n"
+        )
+        self.parser.parse(text)
+
+        person = self.parser.persons["II.1"]
+        assert len(person.marriages) == 1
+
+        marriage = person.marriages[0]
+        # De echte partnernaam moet zijn opgeslagen, niet de archief-notitie
+        assert "Otto" in marriage.spouse_name, \
+            f"Partnernaam moet 'Otto' bevatten, niet '{marriage.spouse_name}'"
+        assert "Ingeschreven" not in marriage.spouse_name, \
+            f"Archief-notitie mag niet als partnernaam zijn opgeslagen: '{marriage.spouse_name}'"
+        assert "Cranenburg" not in marriage.spouse_name, \
+            f"Archief-notitie mag niet als partnernaam zijn opgeslagen: '{marriage.spouse_name}'"
+
+    def test_met_on_next_line_still_works(self):
+        """'met' op een eigen regel na de Tr.-regel moet de partner activeren."""
+        text = (
+            "I.1 Henricus RUTJENS\n"
+            "Tr. ±1726 met\n"
+            "Aleida DERKS\n"
+        )
+        self.parser.parse(text)
+
+        person = self.parser.persons["I.1"]
+        assert len(person.marriages) == 1
+        assert "Aleida" in person.marriages[0].spouse_name
+
+    def test_met_inline_with_name_on_tr_line(self):
+        """'met Naam' op de Tr.-regel moet inline worden verwerkt."""
+        text = (
+            "I.1 Henricus RUTJENS\n"
+            "Tr. Beers 23-04-1702 met Maria VAN BERCK\n"
+        )
+        self.parser.parse(text)
+
+        person = self.parser.persons["I.1"]
+        assert len(person.marriages) == 1
+        assert "Maria" in person.marriages[0].spouse_name
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
