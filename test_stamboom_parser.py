@@ -1124,6 +1124,44 @@ class TestSoftLinebreak:
         assert theodorus.marriages[0].spouse_name == "Wilhelmina Eujen"
         assert theodorus.birth_date != "±1722"
 
+    def test_main_person_two_marriages_u2028_numbered_spouses(self):
+        """
+        Hoofdpersoon met twee huwelijken, waarbij huwelijksregels via U+2028 zijn
+        samengevoegd en partners (1)/( 2) voorvoegsel hebben.
+
+        Regressietest voor II.3 Catharina RUTJES (dochter van I.1 Paulus en Maria van Berk):
+          Tr. voor de kerk Hulhuizen 08-05-1729 met
+          → (1) Gerrit WEELING / WELINGH / WENING
+          → Ondertr. NG Gendt-Erlecom 04-04-1736, tr. ..., gett. ..., met
+          (2) Walravius / Walramus (Walramen) VAN BENTHUM
+
+        Beide huwelijken moeten correct worden opgeslagen.
+        """
+        text = (
+            "II.3 Catharina RUTJES, dr. van I.1\n"
+            "* Erlecom, \u25b3 Kekerdom 02-02-1707.\n"
+            "Tr. voor de kerk Hulhuizen 08-05-1729 met\u2028"
+            "(1) Gerrit WEELING / WELINGH / WENING\u2028"
+            "Ondertr. NG Gendt-Erlecom 04-04-1736, tr. Gendt 22-04-1736, gett. Joannis Rijken, Henricus Bonekamp, met\n"
+            "(2) Walravius / Walramus (Walramen) VAN BENTHUM\n"
+        )
+        self.parser.parse(text)
+
+        assert "II.3" in self.parser.persons
+        catharina = self.parser.persons["II.3"]
+
+        assert len(catharina.marriages) == 2, \
+            f"Catharina moet 2 huwelijken hebben, niet {len(catharina.marriages)}"
+
+        assert "Gerrit" in catharina.marriages[0].spouse_name, \
+            f"Eerste man moet Gerrit Weeling zijn, niet '{catharina.marriages[0].spouse_name}'"
+        assert catharina.marriages[0].marriage_date == "08-05-1729"
+
+        assert "Walravius" in catharina.marriages[1].spouse_name or \
+               "Benthum" in catharina.marriages[1].spouse_name, \
+            f"Tweede man moet Walravius van Benthum zijn, niet '{catharina.marriages[1].spouse_name}'"
+        assert catharina.marriages[1].marriage_date == "04-04-1736"
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
