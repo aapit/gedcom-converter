@@ -1002,5 +1002,128 @@ class TestBaptismOnBirthLine:
         assert child.baptism_date == "24-10-1736"
 
 
+class TestSoftLinebreak:
+    """Tests for U+2028 (LINE SEPARATOR / zachte regelterugloop) verwerking.
+
+    Word-documenten gebruiken U+2028 voor zachte regeleinden (Shift+Enter).
+    De parser moet U+2028 als regelscheider behandelen, net als \\n.
+    """
+
+    def setup_method(self):
+        self.parser = StamboomParser()
+
+    def test_u2028_spouse_on_separate_logical_line(self):
+        """
+        Huwelijksregel eindigt op 'met' na U+2028 → partner op volgende regel
+        is partner, niet kind.
+        """
+        text = (
+            "V.1. Aldegondis RUTJES, dr. van I.1\n"
+            "* Erlecom ±1700\n"
+            "Tr. Kekerdom 01-11-1725 met\n"
+            "Otto LINSEN\n"
+            "Hieruit:\n"
+            "Joannes LINSEN\n"
+            "\u25b3 Kekerdom 26-04-1737.\n"
+            "(Kroes kwartier 80).\u2028Tr. RK Leuth 11-05-1765, gett. Petrus Janssen, met\n"
+            "Joanna JANSSEN\n"
+            "* Erlecom 19-02-1741\n"
+            "Vier kinderen.\n"
+        )
+        self.parser.parse(text)
+
+        child_names = [c.name for c in self.parser.unnamed_children if c.parent_ref == "V.1"]
+        assert "Joanna Janssen" not in child_names, \
+            "Joanna Janssen mag geen kind van Aldegondis zijn"
+        assert "Joannes Linsen" in child_names
+
+        joannes = next(c for c in self.parser.unnamed_children
+                       if c.parent_ref == "V.1" and "Joannes" in c.name)
+        assert len(joannes.marriages) == 1
+        assert joannes.marriages[0].spouse_name == "Joanna Janssen"
+
+    def test_u2028_tr_after_baptism_line(self):
+        """
+        Doopregel gevolgd door huwelijksinfo via U+2028 → doop correct,
+        huwelijk voor dit kind aangemaakt.
+        """
+        text = (
+            "V.1. Aldegondis RUTJES, dr. van I.1\n"
+            "Hieruit:\n"
+            "Joanna LINSEN\n"
+            "\u25b3 Kekerdom 12-10-1740, \u25ad Ooij 27-06-1815.\u2028Tr. RK Ooij 16-08-1767 met\n"
+            "Jacobus SPEET\n"
+        )
+        self.parser.parse(text)
+
+        joanna = next((c for c in self.parser.unnamed_children
+                       if c.parent_ref == "V.1" and "Joanna" in c.name), None)
+        assert joanna is not None
+        assert joanna.baptism_date == "12-10-1740"
+        assert len(joanna.marriages) == 1
+        assert joanna.marriages[0].spouse_name == "Jacobus Speet"
+
+        child_names = [c.name for c in self.parser.unnamed_children if c.parent_ref == "V.1"]
+        assert "Jacobus Speet" not in child_names
+
+    def test_multiple_spouses_in_children_section(self):
+        """
+        Kind met twee huwelijken in de kinderen-sectie.
+        '(1) Claes LEENDERS' en '(2) Paul de VRIES' moeten beide als partner,
+        niet als kind worden opgeslagen.
+        """
+        text = (
+            "V.1. Aldegondis RUTJES, dr. van I.1\n"
+            "Hieruit:\n"
+            "Maria LINSEN\n"
+            "Ondertr. / tr. RK Ooij 19-10 / 07-11-1770 met\n"
+            "(1) Claes LEENDERS\n"
+            "* Beers, wed. van Harmske Holterman.\n"
+            "Tr. RK Ooij 05-01-1785 met\n"
+            "(2) Paul de VRIES\n"
+        )
+        self.parser.parse(text)
+
+        maria = next((c for c in self.parser.unnamed_children
+                      if c.parent_ref == "V.1" and "Maria" in c.name), None)
+        assert maria is not None
+        assert len(maria.marriages) == 2, \
+            f"Maria moet 2 huwelijken hebben, niet {len(maria.marriages)}"
+        assert maria.marriages[0].spouse_name == "Claes Leenders"
+        assert maria.marriages[1].spouse_name == "Paul de Vries"
+
+        child_names = [c.name for c in self.parser.unnamed_children if c.parent_ref == "V.1"]
+        assert "Claes Leenders" not in child_names
+        assert "Paul de Vries" not in child_names
+
+    def test_next_child_not_swallowed_as_spouse(self):
+        """
+        Na opslaan van een huwelijkspartner moet het volgende kind correct
+        als nieuw kind worden herkend, niet als tweede partner.
+        """
+        text = (
+            "V.1. Aldegondis RUTJES, dr. van I.1\n"
+            "Hieruit:\n"
+            "Theodorus LINSEN\n"
+            "* Erlecom 16-02-1729\n"
+            "Tr. Zyfflich 08-01-1748 met\n"
+            "Wilhelmina EUJEN\n"
+            "* ±1722\n"
+            "Wilhelm LINSEN\n"
+            "* Erlecom 26-08-1731\n"
+        )
+        self.parser.parse(text)
+
+        child_names = [c.name for c in self.parser.unnamed_children if c.parent_ref == "V.1"]
+        assert "Wilhelmina Eujen" not in child_names
+        assert "Theodorus Linsen" in child_names
+        assert "Wilhelm Linsen" in child_names
+
+        theodorus = next(c for c in self.parser.unnamed_children
+                         if c.parent_ref == "V.1" and "Theodorus" in c.name)
+        assert theodorus.marriages[0].spouse_name == "Wilhelmina Eujen"
+        assert theodorus.birth_date != "±1722"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

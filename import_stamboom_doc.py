@@ -109,6 +109,7 @@ class StamboomParser:
         self.child_marriage_lines_seen = 0  # Tel hoeveel regels we hebben gezien in child_marriage_context
         self.pending_name_variants = []  # Tijdelijke opslag voor naamvarianten van hetzelfde kind
         self.last_child_marriage = None  # Laatste huwelijk van kind, voor ouder-info op volgende regel
+        self.current_child_spouse_stored = False  # True nadat partner van kind is opgeslagen (voorkomt dat * / △ / † de kind-data overschrijft)
 
     def normalize_name(self, name):
         """Converteer all-caps namen naar title case"""
@@ -534,6 +535,7 @@ class StamboomParser:
             self.current_marriage_num = 0
             self.current_child = None
             self.child_marriage_context = False
+            self.current_child_spouse_stored = False
             return
 
         if not self.current_person:
@@ -621,7 +623,7 @@ class StamboomParser:
             place, date = self.parse_place_date(rest)
 
             # Bepaal waar we deze info opslaan
-            if self.in_children_section and self.current_child:
+            if self.in_children_section and self.current_child and not self.current_child_spouse_stored:
                 # Dit is een kind zonder generatie ID - sla geboorte info op
                 self.current_child.birth_place = place
                 self.current_child.birth_date = date
@@ -657,7 +659,7 @@ class StamboomParser:
                 else:
                     bap_place_date_str = baptism_part
                 bap_place, bap_date = self.parse_place_date(bap_place_date_str)
-                if self.in_children_section and self.current_child:
+                if self.in_children_section and self.current_child and not self.current_child_spouse_stored:
                     self.current_child.baptism_place = bap_place
                     self.current_child.baptism_date = bap_date
                 elif not self.in_children_section and not self.parsing_spouse_info:
@@ -723,7 +725,7 @@ class StamboomParser:
         # Parse gedoopt (△ of Δ)
         elif line.startswith("△") or line.startswith("Δ"):
             # In kinderen sectie: markeer dat current_child een doop heeft en sla info op
-            if self.in_children_section and self.current_child:
+            if self.in_children_section and self.current_child and not self.current_child_spouse_stored:
                 self.current_child_has_baptism = True
                 # Reset child_marriage_context omdat Δ altijd een nieuw kind aangeeft
                 self.child_marriage_context = False
@@ -762,12 +764,12 @@ class StamboomParser:
             place, date = self.parse_place_date(line[1:].strip())
 
             # Bepaal waar we deze info opslaan
-            if self.in_children_section and self.current_child:
+            if self.in_children_section and self.current_child and not self.current_child_spouse_stored:
                 # Dit is een kind zonder generatie ID - sla overleden info op
                 self.current_child.death_place = place
                 self.current_child.death_date = date
             elif self.in_children_section:
-                # Negeer - kinderen sectie maar geen current_child
+                # Negeer - kinderen sectie maar geen current_child (of partner-info)
                 pass
             elif self.parsing_spouse_info and self.current_marriage:
                 # Dit is partner overleden info
@@ -815,6 +817,8 @@ class StamboomParser:
                     self.current_child.marriages.append(marriage)
                     # We gaan de partner naam op de volgende regel verwachten
                     self.parsing_spouse_info = True
+                    # Nieuw huwelijk begint: partner-opgeslagen vlag resetten
+                    self.current_child_spouse_stored = False
 
                 # Markeer dat we nu een huwelijk van een kind parsen
                 # De volgende regels (partner naam, etc.) moeten worden genegeerd door child parsing
@@ -963,10 +967,14 @@ class StamboomParser:
                     self.current_marriage.spouse_mother_name = mother_name
 
         # Parse partner voor kinderen in kinderen sectie
-        elif self.in_children_section and self.current_child and len(self.current_child.marriages) > 0:
-            # Als het kind een huwelijk heeft en nog geen partner naam
+        # Alleen als het LAATSTE huwelijk van het kind nog geen partnernaam heeft; anders valt de
+        # regel door naar "elif self.in_children_section:" zodat het als nieuw kind wordt geparsed.
+        elif (self.in_children_section and self.current_child and
+              len(self.current_child.marriages) > 0 and
+              not self.current_child.marriages[-1].spouse_name):
+            # Het kind heeft een huwelijk maar nog geen partner naam
             child_marriage = self.current_child.marriages[-1]
-            if not child_marriage.spouse_name and not re.match(r"^[IVX]+\.\d+", line):
+            if not re.match(r"^[IVX]+\.\d+", line):
                 # Skip URLs
                 if "http://" in line or "https://" in line or "www." in line.lower():
                     return
@@ -1005,11 +1013,12 @@ class StamboomParser:
                     # Bewaar referentie voor eventuele "dr. van / zn. van" ouderregel op volgende regel
                     self.last_child_marriage = child_marriage
 
-                    # Reset alles: partner is gevonden, volgende regels zijn nieuwe kinderen
+                    # Partner gevonden: zet vlag zodat * / △ / † hieronder niet de KIND-data overschrijven.
+                    # current_child blijft intact zodat een eventueel volgend huwelijk (Tr.) voor hetzelfde
+                    # kind een nieuwe Marriage kan aanmaken (bijv. "(2) Paul de Vries" na "(1) Claes Leenders").
                     self.parsing_spouse_info = False
                     self.child_marriage_context = False
-                    self.current_child = None
-                    self.current_child_has_baptism = False
+                    self.current_child_spouse_stored = True
                     return
 
         # Parse kinderen sectie
@@ -1021,6 +1030,7 @@ class StamboomParser:
             self.child_marriage_context = False  # Reset huwelijk context
             self.current_child = None  # Reset current child voor nieuwe kinderen sectie
             self.current_child_has_baptism = False  # Reset doop flag voor nieuwe kinderen sectie
+            self.current_child_spouse_stored = False  # Reset partner-opgeslagen vlag
             # Extract huwelijksnummer
             marriage_num_match = re.search(r"Uit\s+\((\d+)\)", line)
             if marriage_num_match:
@@ -1115,6 +1125,7 @@ class StamboomParser:
                 self.current_child = None  # Reset current child
                 self.current_child_has_baptism = False  # Reset doop flag
                 self.child_marriage_context = False  # Reset huwelijk context
+                self.current_child_spouse_stored = False  # Reset partner-opgeslagen vlag
             elif re.match(r"^[A-Z•]", line) and not any(
                 keyword in line.lower()
                 for keyword in ["arch.", "beers", "wanroij", "ibid", "error", "generatie", "nageslacht",
@@ -1379,6 +1390,7 @@ class StamboomParser:
                 self.current_child = child
                 self.current_child_has_baptism = False  # Reset doop flag voor nieuw kind
                 self.child_marriage_context = False  # Reset huwelijk context voor nieuw kind
+                self.current_child_spouse_stored = False  # Reset partner-opgeslagen vlag voor nieuw kind
 
         # Anders: notitie
         else:
@@ -1391,7 +1403,10 @@ class StamboomParser:
 
     def parse(self, text):
         """Parse de volledige tekst"""
-        lines = text.split("\n")
+        # Split ook op U+2028 (LINE SEPARATOR) en U+2029 (PARAGRAPH SEPARATOR):
+        # Word-documenten gebruiken U+2028 voor zachte regeleinden (Shift+Enter),
+        # zodat namen en huwelijksinfo op aparte logische regels staan maar in één alinea.
+        lines = re.split(r'[\n\u2028\u2029]', text)
 
         # Skip legenda (eerste regels tot eerste generatie header)
         start_idx = 0
