@@ -1850,6 +1850,10 @@ class StamboomParser:
                                 first_slash_idx = parts.index("/")
                                 given = " ".join(parts[:first_slash_idx - 1])
                                 surname = " ".join(parts[first_slash_idx - 1:])
+                                # Dedupliceer identieke achternaam-varianten (bijv. "Rutjens / Rutjens" → "Rutjens")
+                                _sv = [v.strip() for v in surname.split("/")]
+                                if len(set(v.lower() for v in _sv)) == 1:
+                                    surname = _sv[0]
                             else:
                                 # Standalone achternaam: zoek in clean_name
                                 surname = parts[-1]
