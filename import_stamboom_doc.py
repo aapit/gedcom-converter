@@ -561,8 +561,25 @@ class StamboomParser:
                     p = after.split('▭', 1)
                     after = p[0].strip().rstrip('.,')
                     burial_part = p[1].strip()
-                rest = after
-                baptism_part = after  # zelfde info voor geboorte en doop
+                # Check voor dubbele datum: "* / △ Appeldorn 14-05 / 26-05-1816"
+                # (zelfde plaats, geboorte- en doopdatum verschillend)
+                double_date_match = re.match(
+                    r'^(.+?)\s+(\d{1,2}-\d{1,2}(?:-\d{2,4})?)\s*/\s*(\d{1,2}-\d{1,2}-\d{2,4})\s*$',
+                    after
+                )
+                if double_date_match:
+                    common_place = double_date_match.group(1).strip()
+                    birth_date_str = double_date_match.group(2).strip()
+                    bap_date_str = double_date_match.group(3).strip()
+                    # Voeg jaar toe aan geboortedatum als alleen DD-MM opgegeven
+                    if not re.search(r'-\d{4}$', birth_date_str):
+                        year = re.search(r'\d{4}$', bap_date_str).group()
+                        birth_date_str = f"{birth_date_str}-{year}"
+                    rest = f"{common_place} {birth_date_str}"
+                    baptism_part = f"{common_place} {bap_date_str}"
+                else:
+                    rest = after
+                    baptism_part = after  # zelfde info voor geboorte en doop
             else:
                 # Zoek positie van △/Δ, † en ▭
                 chr_pos = min((rest.find(s) for s in ['△', 'Δ'] if s in rest), default=-1)

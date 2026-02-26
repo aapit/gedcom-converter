@@ -935,14 +935,32 @@ class TestBaptismOnBirthLine:
         assert p.baptism_place == "Kekerdom"
         assert p.baptism_date == "04-05-1709"
 
-    def test_birth_slash_baptism_combined(self):
-        """'* / △ Delft 22-05-1814' → zelfde datum voor geboorte en doop"""
+    def test_birth_slash_baptism_same_date(self):
+        """'* / △ Delft 22-05-1814' → zelfde datum en plaats voor geboorte en doop"""
         self.parser.parse_line("* / △ Delft 22-05-1814")
         p = self.parser.current_person
         assert p.birth_place == "Delft"
         assert p.birth_date == "22-05-1814"
         assert p.baptism_place == "Delft"
         assert p.baptism_date == "22-05-1814"
+
+    def test_birth_slash_baptism_same_place_different_dates(self):
+        """'* / △ Appeldorn 14-05 / 26-05-1816' → zelfde plaats, geboorte 14-05, doop 26-05"""
+        self.parser.parse_line("* / △ Appeldorn 14-05 / 26-05-1816")
+        p = self.parser.current_person
+        assert p.birth_place == "Appeldorn"
+        assert p.birth_date == "14-05-1816"
+        assert p.baptism_place == "Appeldorn"
+        assert p.baptism_date == "26-05-1816"
+
+    def test_birth_slash_baptism_both_full_dates(self):
+        """'* / △ Kekerdom 04-05-1709 / 12-05-1709' → beide volledige data"""
+        self.parser.parse_line("* / △ Kekerdom 04-05-1709 / 12-05-1709")
+        p = self.parser.current_person
+        assert p.birth_place == "Kekerdom"
+        assert p.birth_date == "04-05-1709"
+        assert p.baptism_place == "Kekerdom"
+        assert p.baptism_date == "12-05-1709"
 
     def test_birth_baptism_and_death_same_line(self):
         """'* Erlecom, △ Kekerdom 10-04-1712, gett. X, † Ooij 1827' → alle drie opgeslagen"""
