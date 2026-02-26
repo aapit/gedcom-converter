@@ -543,23 +543,57 @@ class StamboomParser:
         if line.startswith("*"):
             rest = line[1:].strip()
 
-            # Check of er een sterfte symbool (†) op dezelfde regel staat
+            # ─── Splits de regel op event-symbolen: geboorte | doop | overlijden | begraving ───
             death_part = None
             burial_part = None
-            if "†" in rest:
-                parts = rest.split("†", 1)
-                rest = parts[0].strip().rstrip(".,")
-                death_part = parts[1].strip()
-            # Check of er een begrafenis symbool (▭) op dezelfde regel staat (zonder †)
-            # Bijv. "* ±1672. ▭ Kekerdom 18-04-1723"
-            elif "▭" in rest:
-                parts = rest.split("▭", 1)
-                rest = parts[0].strip().rstrip(".,")
-                burial_part = parts[1].strip()
-            # Split op komma als er een doop symbool in staat
-            elif "," in rest and ("△" in rest or "Δ" in rest):
-                parts = rest.split(",")
-                rest = parts[0]
+            baptism_part = None  # Doop op dezelfde * regel
+
+            # Gecombineerde notaties: "* en △ Datum", "* / △ Datum", "*/△ Datum"
+            # Betekenis: geboorte en doop op dezelfde datum/plaats
+            combined_match = re.match(r'^(?:en\s+|/\s*)[△Δ]|^/[△Δ]', rest)
+            if combined_match:
+                after = rest[combined_match.end():].strip()
+                if '†' in after:
+                    p = after.split('†', 1)
+                    after = p[0].strip().rstrip('.,')
+                    death_part = p[1].strip()
+                elif '▭' in after:
+                    p = after.split('▭', 1)
+                    after = p[0].strip().rstrip('.,')
+                    burial_part = p[1].strip()
+                rest = after
+                baptism_part = after  # zelfde info voor geboorte en doop
+            else:
+                # Zoek positie van △/Δ, † en ▭
+                chr_pos = min((rest.find(s) for s in ['△', 'Δ'] if s in rest), default=-1)
+                dth_pos = rest.find('†') if '†' in rest else -1
+                bur_pos = rest.find('▭') if '▭' in rest else -1
+
+                if chr_pos != -1 and (dth_pos == -1 or chr_pos < dth_pos) and (bur_pos == -1 or chr_pos < bur_pos):
+                    # △ komt vóór †/▭: splits eerst op △
+                    # Bijv. "* Erlecom, △ Kekerdom 10-04-1712, gett. X, † Ooij 1827"
+                    rest = rest[:chr_pos].strip().rstrip('.,')
+                    after_chr = line[1:].strip()[chr_pos + 1:].strip()  # alles na △
+                    if '†' in after_chr:
+                        p = after_chr.split('†', 1)
+                        baptism_part = p[0].strip().rstrip('.,')
+                        death_part = p[1].strip()
+                    elif '▭' in after_chr:
+                        p = after_chr.split('▭', 1)
+                        baptism_part = p[0].strip().rstrip('.,')
+                        burial_part = p[1].strip()
+                    else:
+                        baptism_part = after_chr
+                elif dth_pos != -1 and (bur_pos == -1 or dth_pos < bur_pos):
+                    # Geen △ eerder, wel †
+                    parts = rest.split('†', 1)
+                    rest = parts[0].strip().rstrip('.,')
+                    death_part = parts[1].strip()
+                elif bur_pos != -1:
+                    # Alleen ▭
+                    parts = rest.split('▭', 1)
+                    rest = parts[0].strip().rstrip('.,')
+                    burial_part = parts[1].strip()
 
             # Splits geboorte info van huwelijks info op dezelfde regel
             # Bijv. "Breda, tr. Goirle 23-08-1991met" → rest = "Breda"
@@ -593,6 +627,27 @@ class StamboomParser:
                 # Dit is de huidige persoon
                 self.current_person.birth_place = place
                 self.current_person.birth_date = date
+
+            # Parse doop info als die op dezelfde * regel stond (bijv. "* Erlecom, △ Kekerdom 10-04-1712")
+            if baptism_part:
+                # Verwerk gett./get. getuigen in de doopinfo
+                bap_witnesses = []
+                if "gett." in baptism_part or "get." in baptism_part:
+                    bap_parts = re.split(r',?\s*gett?\.?\s*', baptism_part)
+                    bap_place_date_str = bap_parts[0].strip()
+                    if len(bap_parts) > 1:
+                        bap_witnesses = [w.strip() for w in bap_parts[1].split(" en ")]
+                else:
+                    bap_place_date_str = baptism_part
+                bap_place, bap_date = self.parse_place_date(bap_place_date_str)
+                if self.in_children_section and self.current_child:
+                    self.current_child.baptism_place = bap_place
+                    self.current_child.baptism_date = bap_date
+                elif not self.in_children_section and not self.parsing_spouse_info:
+                    self.current_person.baptism_place = bap_place
+                    self.current_person.baptism_date = bap_date
+                    if bap_witnesses:
+                        self.current_person.baptism_witnesses = bap_witnesses
 
             # Parse sterfte info als die op dezelfde regel staat
             if death_part:

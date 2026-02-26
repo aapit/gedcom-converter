@@ -908,5 +908,81 @@ Pieter JANSEN.
         assert "Pieter" in child_names[0]
 
 
+class TestBaptismOnBirthLine:
+    """Tests voor doop-info (△) op dezelfde regel als geboorte (*)"""
+
+    def setup_method(self):
+        self.parser = StamboomParser()
+        person = self.parser.parse_person_header("III.1 Joannes RUTJES, zn. van II.1")
+        self.parser.current_person = person
+        self.parser.persons[person.generation_id] = person
+
+    def test_birth_then_baptism_separate_place(self):
+        """'* Erlecom, △ Kekerdom 10-04-1712' → aparte geboorte- en doopplaats"""
+        self.parser.parse_line("* Erlecom, △ Kekerdom 10-04-1712")
+        p = self.parser.current_person
+        assert p.birth_place == "Erlecom"
+        assert p.birth_date is None
+        assert p.baptism_place == "Kekerdom"
+        assert p.baptism_date == "10-04-1712"
+
+    def test_birth_then_baptism_same_place_and_date(self):
+        """'* en △ Kekerdom 04-05-1709' → zelfde plaats en datum voor geboorte en doop"""
+        self.parser.parse_line("* en △ Kekerdom 04-05-1709")
+        p = self.parser.current_person
+        assert p.birth_place == "Kekerdom"
+        assert p.birth_date == "04-05-1709"
+        assert p.baptism_place == "Kekerdom"
+        assert p.baptism_date == "04-05-1709"
+
+    def test_birth_slash_baptism_combined(self):
+        """'* / △ Delft 22-05-1814' → zelfde datum voor geboorte en doop"""
+        self.parser.parse_line("* / △ Delft 22-05-1814")
+        p = self.parser.current_person
+        assert p.birth_place == "Delft"
+        assert p.birth_date == "22-05-1814"
+        assert p.baptism_place == "Delft"
+        assert p.baptism_date == "22-05-1814"
+
+    def test_birth_baptism_and_death_same_line(self):
+        """'* Erlecom, △ Kekerdom 10-04-1712, gett. X, † Ooij 1827' → alle drie opgeslagen"""
+        self.parser.parse_line("* Erlecom, △ Kekerdom 10-04-1712, gett. Arnoldus Schippereijn en Wendel Sondagh, † Ooij 23-08-1827")
+        p = self.parser.current_person
+        assert p.birth_place == "Erlecom"
+        assert p.baptism_place == "Kekerdom"
+        assert p.baptism_date == "10-04-1712"
+        assert p.death_place == "Ooij"
+        assert p.death_date == "23-08-1827"
+
+    def test_baptism_witnesses_on_birth_line(self):
+        """'* Vierlingsbeek, △ RK Overloon 06-03-1742, gett. Thijs Thomesen en Jenneke Roeffen'"""
+        self.parser.parse_line("* Vierlingsbeek, △ RK Overloon 06-03-1742, gett. Thijs Thomesen en Jenneke Roeffen")
+        p = self.parser.current_person
+        assert p.birth_place == "Vierlingsbeek"
+        assert p.baptism_place == "RK Overloon"
+        assert p.baptism_date == "06-03-1742"
+        assert "Thijs Thomesen" in p.baptism_witnesses
+
+    def test_only_birth_no_baptism(self):
+        """'* Rotterdam 15-03-1850' → alleen geboorte, geen doop"""
+        self.parser.parse_line("* Rotterdam 15-03-1850")
+        p = self.parser.current_person
+        assert p.birth_place == "Rotterdam"
+        assert p.birth_date == "15-03-1850"
+        assert p.baptism_place is None
+        assert p.baptism_date is None
+
+    def test_child_birth_and_baptism_same_line(self):
+        """Doop op geboortegel wordt ook voor naamloze kinderen opgeslagen"""
+        child = Person("child_1", None)
+        child.name = "Jan RUTJES"
+        self.parser.in_children_section = True
+        self.parser.current_child = child
+        self.parser.parse_line("* Zeeland, △ Leuth 24-10-1736, gett. Henricus van Colck en Aleidis Huijsman")
+        assert child.birth_place == "Zeeland"
+        assert child.baptism_place == "Leuth"
+        assert child.baptism_date == "24-10-1736"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
