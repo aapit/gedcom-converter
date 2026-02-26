@@ -1738,14 +1738,30 @@ class StamboomParser:
                         # Voeg kind toe aan familie
                         for fam_key, fam_data in families.items():
                             if fam_data["id"] == parent_fam_id:
-                                families[fam_key]["children"].append(child_id)
-                                # Sla FAMC link op voor dit kind
-                                if not hasattr(self, 'person_parent_families'):
-                                    self.person_parent_families = {}
-                                if child_ref not in self.person_parent_families:
-                                    self.person_parent_families[child_ref] = []
-                                if parent_fam_id not in self.person_parent_families[child_ref]:
-                                    self.person_parent_families[child_ref].append(parent_fam_id)
+                                if child_id in families[fam_key]["children"]:
+                                    # Duplicaat (bijv. door typefout "zie III.4" i.p.v. "zie III.5"):
+                                    # zoek een ongelinkte sibling met dezelfde ouder en wijs die toe.
+                                    for sid, sp in self.persons.items():
+                                        if (sid != child_ref
+                                                and sp.parent_ref == parent_gen_id
+                                                and sid not in self.person_parent_families
+                                                and sid in person_id_map):
+                                            sib_id = person_id_map[sid]
+                                            families[fam_key]["children"].append(sib_id)
+                                            if sid not in self.person_parent_families:
+                                                self.person_parent_families[sid] = []
+                                            if parent_fam_id not in self.person_parent_families[sid]:
+                                                self.person_parent_families[sid].append(parent_fam_id)
+                                            break
+                                else:
+                                    families[fam_key]["children"].append(child_id)
+                                    # Sla FAMC link op voor dit kind
+                                    if not hasattr(self, 'person_parent_families'):
+                                        self.person_parent_families = {}
+                                    if child_ref not in self.person_parent_families:
+                                        self.person_parent_families[child_ref] = []
+                                    if parent_fam_id not in self.person_parent_families[child_ref]:
+                                        self.person_parent_families[child_ref].append(parent_fam_id)
                                 break
 
         # Stap 3 niet meer nodig: unnamed children zitten nu ook in parent.children lijst!

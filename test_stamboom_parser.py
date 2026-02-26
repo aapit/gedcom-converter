@@ -1250,5 +1250,142 @@ class TestImplicitSpouseWithoutTrLine:
                "Berk" in paulus.marriages[0].spouse_name
 
 
+class TestDuplicateChildRef:
+    """Tests voor dubbele "zie X.Y" verwijzingen veroorzaakt door typefouten in brondocument.
+
+    Als een kindlijst twee keer dezelfde verwijzing bevat (bijv. "zie III.4" i.p.v. "zie III.5"),
+    mag de parser geen duplicaat-CHIL aanmaken. In plaats daarvan moet de ongelinkte sibling
+    (het kind dat geen FAMC heeft via de kinderlijst) worden gekoppeld aan de juiste familie.
+    """
+
+    def setup_method(self):
+        self.parser = StamboomParser()
+
+    def test_duplicate_zie_ref_no_duplicate_chil(self):
+        """
+        Regressietest voor II.2 Henricus RUTJENS (twee huwelijken):
+        Uit (2): bevat "zie III.4" tweemaal (typefout; tweede moet "zie III.5" zijn).
+        III.4 mag slechts eenmaal als CHIL in de tweede-huwelijksfamilie staan.
+        """
+        import tempfile
+        import os
+
+        text = (
+            "II.2 Henricus RUTJENS, zn. van I.1\n"
+            "* ±1704\n"
+            "Tr. ±1726 met\n"
+            "Aleida DERKS\n"
+            "Uit (1):\n"
+            "\t•\tPaulus RUTJENS, 1727, zie III.1.\n"
+            "Tr. ±1731 met\n"
+            "(2) Theodora ALBERS\n"
+            "Uit (2):\n"
+            "\t•\tGertrudis RUTJENS, 1744, zie III.4\n"
+            "\t•\tJoannes RUTJENS, 1749, zie III.4\n"  # typefout: moet III.5 zijn
+            "III.1 Paulus RUTJENS, zn. van II.2\n"
+            "* 1727\n"
+            "III.4 Gertrudis RUTJENS, dr. van II.2\n"
+            "△ 18-09-1744\n"
+            "III.5 Joannes RUTJENS, zn. van II.2\n"
+            "△ 18-04-1749\n"
+        )
+        self.parser.parse(text)
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.ged', delete=False) as f:
+            temp_file = f.name
+
+        try:
+            self.parser.generate_gedcom(temp_file)
+
+            with open(temp_file, 'r', encoding='utf-8') as f:
+                gedcom_content = f.read()
+
+            # Geen enkele FAM-record mag dezelfde CHIL twee keer bevatten
+            fam_blocks = {}
+            current_fam = None
+            for line in gedcom_content.splitlines():
+                if line.startswith("0 @F") and "FAM" in line:
+                    current_fam = line.split()[1]
+                    fam_blocks[current_fam] = []
+                elif current_fam:
+                    fam_blocks[current_fam].append(line)
+
+            for fam_id, lines in fam_blocks.items():
+                chil_ids = [l.split()[-1] for l in lines if l.startswith("1 CHIL")]
+                assert len(chil_ids) == len(set(chil_ids)), \
+                    f"Familie {fam_id} heeft duplicate CHIL-regels: {chil_ids}"
+
+        finally:
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
+
+    def test_duplicate_zie_ref_sibling_gets_correct_famc(self):
+        """
+        Bij "zie III.4" typefout (moet III.5 zijn) moet III.5 alsnog de FAMC
+        van het tweede huwelijk krijgen (niet het eerste).
+        III.4 (Gertrudis, △ 1744) en III.5 (Joannes, △ 1749) moeten
+        dezelfde ouder-familie hebben.
+        """
+        import tempfile
+        import os
+
+        text = (
+            "II.2 Henricus RUTJENS, zn. van I.1\n"
+            "* ±1704\n"
+            "Tr. ±1726 met\n"
+            "Aleida DERKS\n"
+            "Uit (1):\n"
+            "\t•\tPaulus RUTJENS, 1727, zie III.1.\n"
+            "Tr. ±1731 met\n"
+            "(2) Theodora ALBERS\n"
+            "Uit (2):\n"
+            "\t•\tGertrudis RUTJENS, 1744, zie III.4\n"
+            "\t•\tJoannes RUTJENS, 1749, zie III.4\n"  # typefout: moet III.5 zijn
+            "III.1 Paulus RUTJENS, zn. van II.2\n"
+            "* 1727\n"
+            "III.4 Gertrudis RUTJENS, dr. van II.2\n"
+            "△ 18-09-1744\n"
+            "III.5 Joannes RUTJENS, zn. van II.2\n"
+            "△ 18-04-1749\n"
+        )
+        self.parser.parse(text)
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.ged', delete=False) as f:
+            temp_file = f.name
+
+        try:
+            self.parser.generate_gedcom(temp_file)
+
+            with open(temp_file, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+
+            # Zoek FAMC voor Gertrudis (△ 1744) en Joannes (△ 1749)
+            def find_famc(name_fragment):
+                in_person = False
+                for line in lines:
+                    if line.startswith("0 @") and "INDI" in line:
+                        in_person = False
+                    if name_fragment in line:
+                        in_person = True
+                    if in_person and line.startswith("1 FAMC"):
+                        return line.strip().split()[-1]
+                return None
+
+            gertrudis_famc = find_famc("Gertrudis /Rutjens/")
+            joannes_famc = find_famc("Joannes /Rutjens/")
+
+            assert gertrudis_famc is not None, "Gertrudis heeft geen FAMC"
+            assert joannes_famc is not None, \
+                "III.5 Joannes heeft geen FAMC — moet aan tweede huwelijk gekoppeld zijn"
+            assert joannes_famc == gertrudis_famc, (
+                f"III.5 Joannes (FAMC {joannes_famc}) en Gertrudis (FAMC {gertrudis_famc}) "
+                f"moeten dezelfde familie (tweede huwelijk) hebben"
+            )
+
+        finally:
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
