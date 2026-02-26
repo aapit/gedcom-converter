@@ -1124,7 +1124,7 @@ class TestSoftLinebreak:
         assert theodorus.marriages[0].spouse_name == "Wilhelmina Eujen"
         assert theodorus.birth_date != "±1722"
 
-    def test_main_person_two_marriages_u2028_numbered_spouses(self):
+    def test_main_person_two_marriages_u2028_numbered_spouses(self):  # noqa: E501
         """
         Hoofdpersoon met twee huwelijken, waarbij huwelijksregels via U+2028 zijn
         samengevoegd en partners (1)/( 2) voorvoegsel hebben.
@@ -1161,6 +1161,93 @@ class TestSoftLinebreak:
                "Benthum" in catharina.marriages[1].spouse_name, \
             f"Tweede man moet Walravius van Benthum zijn, niet '{catharina.marriages[1].spouse_name}'"
         assert catharina.marriages[1].marriage_date == "04-04-1736"
+
+
+class TestImplicitSpouseWithoutTrLine:
+    """Tests voor echtgeno(o)t(e) die zonder "Tr."-regel wordt vermeld.
+
+    Sommige stamboomvermeldingen noemen de partner direct op een eigen regel
+    zonder een "Tr." of "Otr." huwelijksmarkering, gevolgd door "Hieruit:".
+    De parser moet deze naam als echtgeno(o)t(e) herkennen.
+    """
+
+    def setup_method(self):
+        self.parser = StamboomParser()
+
+    def test_spouse_without_tr_line_creates_marriage(self):
+        """
+        Regressietest voor III.3 Wilhelmus RUTJENS (zn. van Henricus):
+        Zijn vrouw "Elisabeth VAN KESTEREN" staat op een eigen regel
+        zonder voorafgaande "Tr."-regel, direct voor "Hieruit:".
+        """
+        text = (
+            "III.3 Wilhelmus RUTJENS, zn. van II.2\n"
+            "\u25b3 Zyfflich 19-03-1737, gett. Franciscus NN en Joanna Albers.\n"
+            "Get. met Wilhelmina van Kesteren bij de doop in Hees op 10-03-1782 "
+            "van Hermanus, zn. van Antonius Scheers en Joanna van Kesteren.\n"
+            "Elisabeth VAN KESTEREN\n"
+            "Hieruit:\n"
+            "Joanna Theodora RUTJENS\n"
+            "* Weurt 13-11-1769\n"
+        )
+        self.parser.parse(text)
+
+        assert "III.3" in self.parser.persons
+        wilhelmus = self.parser.persons["III.3"]
+
+        assert len(wilhelmus.marriages) == 1, \
+            f"Wilhelmus moet 1 huwelijk hebben, niet {len(wilhelmus.marriages)}"
+        assert "Kesteren" in wilhelmus.marriages[0].spouse_name, \
+            f"Echtgenote moet Elisabeth van Kesteren zijn, niet '{wilhelmus.marriages[0].spouse_name}'"
+
+    def test_spouse_without_tr_line_children_linked(self):
+        """
+        Kinderen na "Hieruit:" moeten worden gekoppeld aan het impliciete huwelijk.
+        """
+        text = (
+            "III.3 Wilhelmus RUTJENS, zn. van II.2\n"
+            "\u25b3 Zyfflich 19-03-1737.\n"
+            "Elisabeth VAN KESTEREN\n"
+            "Hieruit:\n"
+            "Joanna Theodora RUTJENS\n"
+            "* Weurt 13-11-1769\n"
+            "Maria RUTJES\n"
+            "\u25b3 18-09-1771\n"
+        )
+        self.parser.parse(text)
+
+        children = [c for c in self.parser.unnamed_children if c.parent_ref == "III.3"]
+        assert len(children) == 2, \
+            f"Verwacht 2 kinderen van Wilhelmus, kreeg {len(children)}"
+        names = [c.name for c in children]
+        assert any("Joanna" in n for n in names)
+        assert any("Maria" in n for n in names)
+        for child in children:
+            assert child.parent_marriage_num == 1, \
+                f"Kind {child.name} moet huwelijksnummer 1 hebben"
+
+    def test_note_lines_not_mistaken_for_spouse(self):
+        """
+        Lange notities (>5 woorden, geen ALL-CAPS achternaam) blijven een notitie
+        en worden niet als echtgeno(o)t(e) herkend.
+        """
+        text = (
+            "I.1 Paulus RUTJES\n"
+            "* ±1672\n"
+            "Woont in Erlecom; kerkten in Kekerdom.\n"
+            "Tr. Gendt 22-08-1697 met\n"
+            "Maria VAN BERCK\n"
+            "Hieruit:\n"
+            "Catharina RUTJES\n"
+            "* 1707\n"
+        )
+        self.parser.parse(text)
+
+        paulus = self.parser.persons["I.1"]
+        # Slechts 1 huwelijk (via Tr.), de lange notitie is geen extra huwelijk
+        assert len(paulus.marriages) == 1
+        assert "Berck" in paulus.marriages[0].spouse_name or \
+               "Berk" in paulus.marriages[0].spouse_name
 
 
 if __name__ == "__main__":

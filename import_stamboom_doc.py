@@ -1398,6 +1398,39 @@ class StamboomParser:
             # Skip URLs
             if line.startswith("http://") or line.startswith("https://"):
                 return
+
+            # Check of dit een impliciete echtgeno(o)t(e)-naam is zonder "Tr."-regel.
+            # Patroon: "Voornaam ACHTERNAAM" direct voor "Hieruit:", zonder huwelijksmarkering.
+            # Voorbeeld: "Elisabeth VAN KESTEREN" als vrouw van III.3 Wilhelmus RUTJENS.
+            # Criteria (conservatief om valse positieven te voorkomen):
+            #   - Niet in kinderensectie
+            #   - 2–5 woorden (korte naam, geen beschrijvingszin)
+            #   - Bevat 3+ aaneengesloten HOOFDLETTERS (achternaam-conventie in stamboomdocumenten)
+            #   - Bevat ook kleine letters (voornaam)
+            #   - Eerste woord begint met hoofdletter EN heeft kleine letters (gegeven naam)
+            #   - Geen levenssymbolen, haakjes, cijfers of verwijzingsmarkers
+            _words = line.strip().split()
+            if (self.current_person is not None
+                    and not self.in_children_section
+                    and 2 <= len(_words) <= 5
+                    and re.search(r'[A-Z]{3,}', line)
+                    and re.search(r'[a-z]', line)
+                    and _words[0][0].isupper()
+                    and any(c.islower() for c in _words[0])
+                    and not re.search(r'[*†△▭\[\]()0-9]', line)
+                    and not re.search(
+                        r'\b(get|gett|zie|bron|arch|kerk|doop|geb|gest|overl|woon|nageslacht)\b',
+                        line, re.IGNORECASE)):
+                # Behandel als echtgeno(o)t(e) zonder expliciete huwelijksregel
+                spouse_name = self.normalize_name(line.strip())
+                self.current_marriage_num = (self.current_marriage_num or 0) + 1
+                self.current_marriage = Marriage()
+                self.current_marriage.marriage_num = self.current_marriage_num
+                self.current_marriage.spouse_name = spouse_name
+                self.current_person.marriages.append(self.current_marriage)
+                self.parsing_spouse_info = True
+                return
+
             if len(line) > 20 and not line.startswith("Error"):
                 self.current_person.notes.append(line)
 
