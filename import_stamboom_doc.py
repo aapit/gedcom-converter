@@ -942,6 +942,7 @@ class StamboomParser:
 
         # Parse kinderen sectie
         elif line.startswith("Hieruit:") or re.match(r"^Uit\s+\(\d+\)", line) or \
+             re.match(r'^Uit\s+deze\b', line, re.IGNORECASE) or \
              (re.match(r'^Hieruit\s+\S', line, re.IGNORECASE) and self.current_person):
             self.in_children_section = True
             self.parsing_spouse_info = False  # Niet meer in partner info sectie
