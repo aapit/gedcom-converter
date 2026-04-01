@@ -168,8 +168,8 @@ class TestNormalizeName:
 
     def test_all_caps_to_title_case(self):
         """Test converting ALL-CAPS to Title Case"""
-        name = self.parser.normalize_name("JOHANNES THOMASSEN")
-        assert name == "Johannes Thomassen"
+        name = self.parser.normalize_name("JOHANNES BAKKER")
+        assert name == "Johannes Bakker"
 
     def test_dutch_prepositions_lowercase(self):
         """Test Dutch prepositions remain lowercase"""
@@ -183,18 +183,18 @@ class TestNormalizeName:
 
     def test_preserve_mixed_case(self):
         """Test preserving already mixed case names"""
-        name = self.parser.normalize_name("Jan Thomassen")
-        assert name == "Jan Thomassen"
+        name = self.parser.normalize_name("Jan Bakker")
+        assert name == "Jan Bakker"
 
     def test_preserve_nn_abbreviation(self):
         """Test preserving NN abbreviation in caps"""
-        name = self.parser.normalize_name("NN THOMASSEN")
-        assert name == "NN Thomassen"
+        name = self.parser.normalize_name("NN BAKKER")
+        assert name == "NN Bakker"
 
     def test_names_with_parentheses(self):
         """Test names with parentheses (nicknames/variants)"""
-        name = self.parser.normalize_name("Johannes (Jan) THOMASSEN")
-        assert name == "Johannes (Jan) Thomassen"
+        name = self.parser.normalize_name("Johannes (Jan) BAKKER")
+        assert name == "Johannes (Jan) Bakker"
 
 
 class TestParsePersonHeader:
@@ -205,28 +205,28 @@ class TestParsePersonHeader:
 
     def test_basic_person_header(self):
         """Test basic person header parsing"""
-        person = self.parser.parse_person_header("I.1 Joannes Thomissen [512]")
+        person = self.parser.parse_person_header("I.1 Johannes Thomissen [512]")
         assert person.generation_id == "I.1"
         assert person.ref_num == "512"
-        assert "Joannes" in person.name
+        assert "Johannes" in person.name
 
     def test_person_with_parent_reference(self):
         """Test person header with parent reference"""
-        person = self.parser.parse_person_header("VIII.6 Henricus Remigius Maria (Harry) THOMASSEN, zn. van VII.5")
+        person = self.parser.parse_person_header("VIII.6 Hendrik Jan (Henk) BAKKER, zn. van VII.5")
         assert person.generation_id == "VIII.6"
         assert person.parent_ref == "VII.5"
         assert person.sex == "M"  # zn. van = male
 
     def test_person_daughter_of(self):
         """Test person header with 'dr. van' (daughter of)"""
-        person = self.parser.parse_person_header("IX.17 Catharina Maria Josephina (Tini) THOMASSEN, dr. van VIII.4")
+        person = self.parser.parse_person_header("IX.17 Maria Elisabeth (Lies) BAKKER, dr. van VIII.4")
         assert person.generation_id == "IX.17"
         assert person.parent_ref == "VIII.4"
         assert person.sex == "F"  # dr. van = female
 
     def test_generation_id_with_period(self):
         """Test generation ID with trailing period (VII.5.)"""
-        person = self.parser.parse_person_header("VII.5. Albertus Hendrikus THOMASSEN, zn. van VI.3")
+        person = self.parser.parse_person_header("VII.5. Willem Hendrik BAKKER, zn. van VI.3")
         assert person.generation_id == "VII.5"  # Period should be stripped
         assert person.parent_ref == "VI.3"
 
@@ -264,7 +264,7 @@ class TestBirthDeathSameLineIntegration:
     def test_birth_and_death_same_line(self):
         """Test parsing birth and death from same line"""
         # Create a person first
-        person = self.parser.parse_person_header("VIII.4 Theodorus Albertus Maria (Theo) THOMASSEN, zn. van VII.5")
+        person = self.parser.parse_person_header("VIII.4 Cornelis Johannes (Kees) BAKKER, zn. van VII.5")
         self.parser.current_person = person
         self.parser.persons[person.generation_id] = person
 
@@ -278,7 +278,7 @@ class TestBirthDeathSameLineIntegration:
 
     def test_birth_death_marriage_same_line(self):
         """Test parsing birth, death, and marriage on same line"""
-        person = self.parser.parse_person_header("VIII.8 Wilhelmus Antonius THOMASSEN, zn. van VII.6")
+        person = self.parser.parse_person_header("VIII.8 Gerardus Cornelis BAKKER, zn. van VII.6")
         self.parser.current_person = person
         self.parser.persons[person.generation_id] = person
 
@@ -303,7 +303,7 @@ class TestGedcomGeneration:
 
         # Create persons with ref_num (like V.1 with [32])
         person1 = Person("V.1", "32")
-        person1.name = "Jo(h)annes (Jan) Thomassen"
+        person1.name = "Jo(h)annes (Jan) Bakker"
         parser.persons["V.1"] = person1
 
         # Create many persons without ref_num (like IX.5)
@@ -379,22 +379,22 @@ class TestChildrenWithMarriages:
     def test_child_marriage_spouse_not_parsed_as_child(self):
         """Test that spouse names of children are not parsed as children themselves"""
         # Simulate parsing a parent and their children where one child gets married
-        text = """V.1. Johannes THOMASSEN, zn. van IV.1 [32]
+        text = """V.1. Johannes BAKKER, zn. van IV.1 [32]
 * Heeswijk 1757, † Cuyk 08-10-1829
 Tr. RK Cuyk 11-05-1794 met
 Maria ABEN [33]
 Hieruit:
-Thomas THOMASSEN
+Thomas BAKKER
 Δ RK Cuyk 04-06-1795
-Anna Maria THOMASSEN
+Anna Maria BAKKER
 * Cuijk 28-05-1799, † Cuijk 15-12-1847
 Tr. Cuijk 01-05-1829 met
 Franciscus VAN LOTTUM
 * Cuijk 28-05-1799
-Gertruda THOMASSEN
+Elisabeth BAKKER
 * Cuijk 10-12-1812
 Tr. Cuijk 07-05-1849 met
-Joannes TIESSEN
+Johannes TIESSEN
 * Cuijk 22-12-1810
 """
         self.parser.parse(text)
@@ -403,20 +403,20 @@ Joannes TIESSEN
         assert "V.1" in self.parser.persons
         person = self.parser.persons["V.1"]
 
-        # Should have exactly 3 named children (Thomas, Anna Maria, Gertruda)
-        # The spouses (Franciscus VAN LOTTUM, Joannes TIESSEN) should NOT be counted as children
+        # Should have exactly 3 named children (Thomas, Anna Maria, Elisabeth)
+        # The spouses (Franciscus VAN LOTTUM, Johannes TIESSEN) should NOT be counted as children
         unnamed_children_count = len([c for c in self.parser.unnamed_children if c.parent_ref == "V.1"])
         assert unnamed_children_count == 3, f"Expected 3 unnamed children, got {unnamed_children_count}"
 
         # Verify the child names
         child_names = [c.name for c in self.parser.unnamed_children if c.parent_ref == "V.1"]
-        assert "Thomas Thomassen" in child_names
-        assert "Anna Maria Thomassen" in child_names
-        assert "Gertruda Thomassen" in child_names
+        assert "Thomas Bakker" in child_names
+        assert "Anna Maria Bakker" in child_names
+        assert "Elisabeth Bakker" in child_names
 
         # Spouse names should NOT be in children
         assert "Franciscus Van Lottum" not in child_names
-        assert "Joannes Tiessen" not in child_names
+        assert "Johannes Tiessen" not in child_names
 
 
 class TestPersonClass:
@@ -459,7 +459,7 @@ class TestSpouseNameCleaning:
 
     def test_remove_marriage_number_prefix(self):
         """Test that (1), (2), etc. are removed from spouse names"""
-        text = """III.1 Jan THOMASSEN [128]
+        text = """III.1 Jan BAKKER [128]
 Tr. RK Beers 11-05-1727 met
 (1) Jenneken EBBEN [129]
 """
@@ -477,7 +477,7 @@ Tr. RK Beers 11-05-1727 met
 
     def test_remove_marriage_number_and_reference(self):
         """Test that both (1) and [xxx] are removed"""
-        text = """III.1 Jan THOMASSEN [128]
+        text = """III.1 Jan BAKKER [128]
 Tr. RK Beers 11-05-1727 met
 (2) Maria JANSEN [256]
 """
@@ -503,10 +503,10 @@ class TestURLFiltering:
 
     def test_url_after_marriage_not_parsed_as_spouse(self):
         """Test that URLs after marriage 'met' are not parsed as spouse names"""
-        text = """III.1 Jan RUTJES [128]
+        text = """III.1 Jan VISSER [128]
 Tr. RK Zyfflich 08-05-1770 met
 http://members.multimania.nl/fkroesarts/huwelijken_zyfflich_1745-1802.htm
-Theodora VOS
+Johanna SMIT
 """
         self.parser.parse(text)
         
@@ -516,13 +516,13 @@ Theodora VOS
         # Should have one marriage
         assert len(person.marriages) == 1
         
-        # Spouse should be Theodora VOS, not the URL
-        assert person.marriages[0].spouse_name == "Theodora Vos"
+        # Spouse should be Johanna SMIT, not the URL
+        assert person.marriages[0].spouse_name == "Johanna Smit"
         assert "multimania" not in person.marriages[0].spouse_name.lower()
 
     def test_url_with_www_filtered(self):
         """Test that URLs starting with www. are filtered"""
-        text = """III.1 Jan RUTJES [128]
+        text = """III.1 Jan VISSER [128]
 Tr. RK Zyfflich 08-05-1770 met
 www.example.com/genealogy
 Maria JANSSEN
@@ -537,7 +537,7 @@ Maria JANSSEN
 
     def test_long_text_not_parsed_as_child(self):
         """Test that long descriptive text is not parsed as child name"""
-        text = """III.1 Jan RUTJES [128]
+        text = """III.1 Jan VISSER [128]
 Tr. met Maria JANSSEN
 Hieruit:
 Zo'n 200 brieven van hem gericht aan zijn familie bevinden zich in het missiehuis te Nijmegen.
@@ -558,12 +558,12 @@ class TestOccupationFiltering:
 
     def test_occupation_timmerman_not_parsed_as_child(self):
         """Test that 'Timmerman' (carpenter) is not parsed as a child name"""
-        text = """VI.9 Antonie RUTJES [100]
+        text = """VI.9 Pieter VISSER [100]
 Tr. Renkum 11-05-1861 met
 Hermina PELGRIM
 * Steenderen 1838/1839
 Hieruit:
-	•	Theodorus Joseph RUTJES
+	•	Hendrik Cornelis VISSER
 * Renkum 09-07-1862, † Renkum 14-05-1922
 Timmerman
 Tr. Renkum 12-05-1894 met
@@ -571,41 +571,41 @@ Petronella DEEGENS
 """
         self.parser.parse(text)
 
-        # Check that Theodorus is parsed correctly
+        # Check that person is parsed correctly
         assert "VI.9" in self.parser.persons
         person = self.parser.persons["VI.9"]
 
-        # Should have unnamed children for Theodorus Joseph Rutjes
+        # Should have unnamed children for Hendrik Cornelis Visser
         # but NOT for "Timmerman" (which is his occupation)
         child_names = [c.name for c in self.parser.unnamed_children if c.parent_ref == "VI.9"]
 
-        # Should have exactly 1 child: Theodorus Joseph Rutjes
+        # Should have exactly 1 child: Hendrik Cornelis Visser
         assert len(child_names) == 1
-        assert "Theodorus Joseph Rutjes" in child_names[0]
+        assert "Hendrik Cornelis Visser" in child_names[0]
 
         # Should NOT have "Timmerman" as a child
         assert not any("timmerman" in name.lower() for name in child_names)
 
     def test_occupation_with_year_filtered(self):
         """Test that occupation with year like 'Timmerman (1938)' is filtered"""
-        text = """V.1 Jan RUTJES [50]
+        text = """V.1 Jan VISSER [50]
 Tr. Ewijk 28-12-1922 met
 Maria LELIVELD
 * Beuningen 1895/1896, zn. van Willem Lelivelt en Hendri±Mulders. Timmerman (1938).
 Hieruit:
-	•	Piet RUTJES
+	•	Piet VISSER
 """
         self.parser.parse(text)
 
         # Check unnamed children - should only have Piet, not "Timmerman"
         child_names = [c.name for c in self.parser.unnamed_children if c.parent_ref == "V.1"]
         assert len(child_names) == 1
-        assert "Piet Rutjes" in child_names[0]
+        assert "Piet Visser" in child_names[0]
         assert not any("timmerman" in name.lower() for name in child_names)
 
     def test_surname_timmerman_still_recognized(self):
         """Test that 'Timmerman' as a surname (with first name) is still parsed"""
-        text = """V.1 Jan RUTJES [50]
+        text = """V.1 Jan VISSER [50]
 Tr. met
 Hermina PELGRIM
 Hieruit:
@@ -646,7 +646,7 @@ class TestBSReferenceFiltering:
 
     def test_bs_reference_removed_from_mother_name(self):
         """Test that BS reference is removed from mother's name in spouse parent info"""
-        text = """V.1 Jan RUTJES [100]
+        text = """V.1 Jan VISSER [100]
 Tr. Bemmel 12-11-1890 met
 Bernardina KIEVITS
 * Doornenburg 20-07-1867, dr. van Antoon Kievits en Johanna Janssen (BS Bemmel 1923 O 69).
@@ -664,7 +664,7 @@ Bernardina KIEVITS
 
     def test_bs_reference_removed_from_father_name(self):
         """Test that BS reference is removed from father's name"""
-        text = """V.1 Jan RUTJES [100]
+        text = """V.1 Jan VISSER [100]
 Tr. met
 Maria KRIJNEN
 * Beuningen 1835/1836, dr. van Leonardus Krijnen (BS Beuningen 1911 O 45) en Hendrica Kouweberg.
@@ -680,7 +680,7 @@ Maria KRIJNEN
 
     def test_bs_reference_both_parents(self):
         """Test BS reference removal when both parents have references"""
-        text = """V.1 Jan RUTJES [100]
+        text = """V.1 Jan VISSER [100]
 Tr. met
 Anna GEURTS
 * Huissen 23-04-1859, dr. van Albertus Geurts (BS Huissen 1920 O 5) en Johanna Koenen (BS Bemmel 1924 O 3).
@@ -704,14 +704,14 @@ class TestMarriagePatterns:
 
     def test_ondertr_marriage_pattern(self):
         """Test that 'Ondertr. / tr.' (full ondertrouw/trouwen) is recognized as marriage"""
-        text = """I.1 Paulus RUTGERS [288]
+        text = """I.1 Willem RUTGERS [288]
 * ±1672. ▭ Kekerdom 18-04-1723.
 Ondertr. / tr. Gendt 01-08/22-08-1697 met Maria VAN BERCK [289]
 △ Zyfflich 16-11-1679
 Hieruit:
-	•	Joannes RUTJES
+	•	Johannes VISSER
 * 1699/1700
-	•	Aldegondis RUTJES, ±1700, zie II.1
+	•	Cornelia VISSER, ±1700, zie II.1
 """
         self.parser.parse(text)
 
@@ -757,7 +757,7 @@ Hieruit:
 
     def test_nn_nomen_nescio_spouse(self):
         """Test that 'NN' (nomen nescio = unknown name) is recognized as valid spouse name"""
-        text = """I.1 Joannes Thomissen [512]
+        text = """I.1 Johannes Thomissen [512]
 * ±1645
 Tr. met
 NN
@@ -788,7 +788,7 @@ class TestSurnameWithPreposition:
 
     def test_given_name_variants_with_surname_preposition(self):
         """Test that 'Walravius / Walramus VAN BENTHUM' correctly identifies van Benthum as surname"""
-        text = """II.1 Aldegondis RUTJES [128]
+        text = """II.1 Cornelia VISSER [128]
 Tr. RK Leuth 25-04-1736 met
 (2) Walravius / Walramus (Walramen) VAN BENTHUM
 * en △ Kekerdom 04-05-1709, † en ▭ Kekerdom 18-11 / 22-11-1753
@@ -820,8 +820,8 @@ Tr. RK Leuth 25-04-1736 met
                 os.remove(temp_file)
 
     def test_surname_variants_without_preposition(self):
-        """Test that 'Agnes Rutjes / Rutjens' still works (surname variants without preposition)"""
-        text = """V.10 AGNES RUTJES / RUTJENS
+        """Test that 'Agnes Visser / Dekker' still works (surname variants without preposition)"""
+        text = """V.10 AGNES VISSER / DEKKER
 * Millingen 1803
 """
         self.parser.parse(text)
@@ -837,8 +837,8 @@ Tr. RK Leuth 25-04-1736 met
             with open(temp_file, 'r', encoding='utf-8') as f:
                 gedcom_content = f.read()
 
-            # Should have "Agnes" as given name and "Rutjes / Rutjens" as surname
-            assert "1 NAME Agnes /Rutjes / Rutjens/" in gedcom_content
+            # Should have "Agnes" as given name and "Visser / Dekker" as surname
+            assert "1 NAME Agnes /Visser / Dekker/" in gedcom_content
 
         finally:
             if os.path.exists(temp_file):
@@ -856,9 +856,9 @@ class TestTrailingPunctuation:
         text = """VIII.7 Johannes PELT
 * Vijlen 15-02-1891
 Tr. Vaals 10-04-1920 met
-Maria THOMASSEN
+Maria BAKKER
 Hieruit:
-Theodorus Jozef Maria (Theo) PELT (Vaals).
+Willem Cornelis (Wim) BERG (Vaals).
 Remigius Jozef Maria PELT, zie IX.30
 """
         self.parser.parse(text)
@@ -885,9 +885,9 @@ Remigius Jozef Maria PELT, zie IX.30
                     assert re.search(r'[A-Za-z]', surname), \
                         f"Surname '{surname}' contains no letters in: {name_line}"
 
-            # Theo Pelt should have 'Pelt' as surname, not '.'
+            # Wim Berg should have 'Berg' as surname, not '.'
             assert any("Theo" in line and "/Pelt/" in line for line in name_lines), \
-                "Expected Theo Pelt to have surname 'Pelt'"
+                "Expected Wim Berg to have surname 'Berg'"
 
         finally:
             if os.path.exists(temp_file):
@@ -914,7 +914,7 @@ class TestBaptismOnBirthLine:
 
     def setup_method(self):
         self.parser = StamboomParser()
-        person = self.parser.parse_person_header("III.1 Joannes RUTJES, zn. van II.1")
+        person = self.parser.parse_person_header("III.1 Johannes VISSER, zn. van II.1")
         self.parser.current_person = person
         self.parser.persons[person.generation_id] = person
 
@@ -994,10 +994,10 @@ class TestBaptismOnBirthLine:
     def test_child_birth_and_baptism_same_line(self):
         """Doop op geboortegel wordt ook voor naamloze kinderen opgeslagen"""
         child = Person("child_1", None)
-        child.name = "Jan RUTJES"
+        child.name = "Jan VISSER"
         self.parser.in_children_section = True
         self.parser.current_child = child
-        self.parser.parse_line("* Zeeland, △ Leuth 24-10-1736, gett. Henricus van Colck en Aleidis Huijsman")
+        self.parser.parse_line("* Zeeland, △ Leuth 24-10-1736, gett. Johannes van Hoorn en Maria Willems")
         assert child.birth_place == "Zeeland"
         assert child.baptism_place == "Leuth"
         assert child.baptism_date == "24-10-1736"
@@ -1019,14 +1019,14 @@ class TestSoftLinebreak:
         is partner, niet kind.
         """
         text = (
-            "V.1. Aldegondis RUTJES, dr. van I.1\n"
+            "V.1. Cornelia VISSER, dr. van I.1\n"
             "* Erlecom ±1700\n"
             "Tr. Kekerdom 01-11-1725 met\n"
             "Otto LINSEN\n"
             "Hieruit:\n"
-            "Joannes LINSEN\n"
+            "Johannes LINSEN\n"
             "\u25b3 Kekerdom 26-04-1737.\n"
-            "(Kroes kwartier 80).\u2028Tr. RK Leuth 11-05-1765, gett. Petrus Janssen, met\n"
+            "(Kroes kwartier 80).\u2028Tr. RK Leuth 11-05-1765, gett. Cornelis Janssen, met\n"
             "Joanna JANSSEN\n"
             "* Erlecom 19-02-1741\n"
             "Vier kinderen.\n"
@@ -1035,11 +1035,11 @@ class TestSoftLinebreak:
 
         child_names = [c.name for c in self.parser.unnamed_children if c.parent_ref == "V.1"]
         assert "Joanna Janssen" not in child_names, \
-            "Joanna Janssen mag geen kind van Aldegondis zijn"
-        assert "Joannes Linsen" in child_names
+            "Joanna Janssen mag geen kind van Cornelia zijn"
+        assert "Johannes Linsen" in child_names
 
         joannes = next(c for c in self.parser.unnamed_children
-                       if c.parent_ref == "V.1" and "Joannes" in c.name)
+                       if c.parent_ref == "V.1" and "Johannes" in c.name)
         assert len(joannes.marriages) == 1
         assert joannes.marriages[0].spouse_name == "Joanna Janssen"
 
@@ -1049,7 +1049,7 @@ class TestSoftLinebreak:
         huwelijk voor dit kind aangemaakt.
         """
         text = (
-            "V.1. Aldegondis RUTJES, dr. van I.1\n"
+            "V.1. Cornelia VISSER, dr. van I.1\n"
             "Hieruit:\n"
             "Joanna LINSEN\n"
             "\u25b3 Kekerdom 12-10-1740, \u25ad Ooij 27-06-1815.\u2028Tr. RK Ooij 16-08-1767 met\n"
@@ -1074,7 +1074,7 @@ class TestSoftLinebreak:
         niet als kind worden opgeslagen.
         """
         text = (
-            "V.1. Aldegondis RUTJES, dr. van I.1\n"
+            "V.1. Cornelia VISSER, dr. van I.1\n"
             "Hieruit:\n"
             "Maria LINSEN\n"
             "Ondertr. / tr. RK Ooij 19-10 / 07-11-1770 met\n"
@@ -1103,9 +1103,9 @@ class TestSoftLinebreak:
         als nieuw kind worden herkend, niet als tweede partner.
         """
         text = (
-            "V.1. Aldegondis RUTJES, dr. van I.1\n"
+            "V.1. Cornelia VISSER, dr. van I.1\n"
             "Hieruit:\n"
-            "Theodorus LINSEN\n"
+            "Johannes MULDER\n"
             "* Erlecom 16-02-1729\n"
             "Tr. Zyfflich 08-01-1748 met\n"
             "Wilhelmina EUJEN\n"
@@ -1117,11 +1117,11 @@ class TestSoftLinebreak:
 
         child_names = [c.name for c in self.parser.unnamed_children if c.parent_ref == "V.1"]
         assert "Wilhelmina Eujen" not in child_names
-        assert "Theodorus Linsen" in child_names
+        assert "Johannes Mulder" in child_names
         assert "Wilhelm Linsen" in child_names
 
         theodorus = next(c for c in self.parser.unnamed_children
-                         if c.parent_ref == "V.1" and "Theodorus" in c.name)
+                         if c.parent_ref == "V.1" and Johannes in c.name)
         assert theodorus.marriages[0].spouse_name == "Wilhelmina Eujen"
         assert theodorus.birth_date != "±1722"
 
@@ -1130,7 +1130,7 @@ class TestSoftLinebreak:
         Hoofdpersoon met twee huwelijken, waarbij huwelijksregels via U+2028 zijn
         samengevoegd en partners (1)/( 2) voorvoegsel hebben.
 
-        Regressietest voor II.3 Catharina RUTJES (dochter van I.1 Paulus en Maria van Berk):
+        Regressietest voor II.3 Catharina VISSER (dochter van I.1 Willem en Maria van Berk):
           Tr. voor de kerk Hulhuizen 08-05-1729 met
           → (1) Gerrit WEELING / WELINGH / WENING
           → Ondertr. NG Gendt-Erlecom 04-04-1736, tr. ..., gett. ..., met
@@ -1139,11 +1139,11 @@ class TestSoftLinebreak:
         Beide huwelijken moeten correct worden opgeslagen.
         """
         text = (
-            "II.3 Catharina RUTJES, dr. van I.1\n"
+            "II.3 Catharina VISSER, dr. van I.1\n"
             "* Erlecom, \u25b3 Kekerdom 02-02-1707.\n"
             "Tr. voor de kerk Hulhuizen 08-05-1729 met\u2028"
             "(1) Gerrit WEELING / WELINGH / WENING\u2028"
-            "Ondertr. NG Gendt-Erlecom 04-04-1736, tr. Gendt 22-04-1736, gett. Joannis Rijken, Henricus Bonekamp, met\n"
+            "Ondertr. NG Gendt-Erlecom 04-04-1736, tr. Gendt 22-04-1736, gett. Willem Peters, Cornelis Jansen, met\n"
             "(2) Walravius / Walramus (Walramen) VAN BENTHUM\n"
         )
         self.parser.parse(text)
@@ -1177,18 +1177,18 @@ class TestImplicitSpouseWithoutTrLine:
 
     def test_spouse_without_tr_line_creates_marriage(self):
         """
-        Regressietest voor III.3 Wilhelmus RUTJENS (zn. van Henricus):
+        Regressietest voor III.3 Petrus DEKKER (zn. van Cornelis):
         Zijn vrouw "Elisabeth VAN KESTEREN" staat op een eigen regel
         zonder voorafgaande "Tr."-regel, direct voor "Hieruit:".
         """
         text = (
-            "III.3 Wilhelmus RUTJENS, zn. van II.2\n"
+            "III.3 Petrus DEKKER, zn. van II.2\n"
             "\u25b3 Zyfflich 19-03-1737, gett. Franciscus NN en Joanna Albers.\n"
             "Get. met Wilhelmina van Kesteren bij de doop in Hees op 10-03-1782 "
             "van Hermanus, zn. van Antonius Scheers en Joanna van Kesteren.\n"
             "Elisabeth VAN KESTEREN\n"
             "Hieruit:\n"
-            "Joanna Theodora RUTJENS\n"
+            "Joanna Johanna DEKKER\n"
             "* Weurt 13-11-1769\n"
         )
         self.parser.parse(text)
@@ -1206,13 +1206,13 @@ class TestImplicitSpouseWithoutTrLine:
         Kinderen na "Hieruit:" moeten worden gekoppeld aan het impliciete huwelijk.
         """
         text = (
-            "III.3 Wilhelmus RUTJENS, zn. van II.2\n"
+            "III.3 Petrus DEKKER, zn. van II.2\n"
             "\u25b3 Zyfflich 19-03-1737.\n"
             "Elisabeth VAN KESTEREN\n"
             "Hieruit:\n"
-            "Joanna Theodora RUTJENS\n"
+            "Joanna Johanna DEKKER\n"
             "* Weurt 13-11-1769\n"
-            "Maria RUTJES\n"
+            "Maria VISSER\n"
             "\u25b3 18-09-1771\n"
         )
         self.parser.parse(text)
@@ -1233,13 +1233,13 @@ class TestImplicitSpouseWithoutTrLine:
         en worden niet als echtgeno(o)t(e) herkend.
         """
         text = (
-            "I.1 Paulus RUTJES\n"
+            "I.1 Willem VISSER\n"
             "* ±1672\n"
             "Woont in Erlecom; kerkten in Kekerdom.\n"
             "Tr. Gendt 22-08-1697 met\n"
             "Maria VAN BERCK\n"
             "Hieruit:\n"
-            "Catharina RUTJES\n"
+            "Catharina VISSER\n"
             "* 1707\n"
         )
         self.parser.parse(text)
@@ -1264,7 +1264,7 @@ class TestDuplicateChildRef:
 
     def test_duplicate_zie_ref_no_duplicate_chil(self):
         """
-        Regressietest voor II.2 Henricus RUTJENS (twee huwelijken):
+        Regressietest voor II.2 Cornelis DEKKER (twee huwelijken):
         Uit (2): bevat "zie III.4" tweemaal (typefout; tweede moet "zie III.5" zijn).
         III.4 mag slechts eenmaal als CHIL in de tweede-huwelijksfamilie staan.
         """
@@ -1272,22 +1272,22 @@ class TestDuplicateChildRef:
         import os
 
         text = (
-            "II.2 Henricus RUTJENS, zn. van I.1\n"
+            "II.2 Cornelis DEKKER, zn. van I.1\n"
             "* ±1704\n"
             "Tr. ±1726 met\n"
             "Aleida DERKS\n"
             "Uit (1):\n"
-            "\t•\tPaulus RUTJENS, 1727, zie III.1.\n"
+            "\t•\tWillem DEKKER, 1727, zie III.1.\n"
             "Tr. ±1731 met\n"
-            "(2) Theodora ALBERS\n"
+            "(2) Johanna ALBERS\n"
             "Uit (2):\n"
-            "\t•\tGertrudis RUTJENS, 1744, zie III.4\n"
-            "\t•\tJoannes RUTJENS, 1749, zie III.4\n"  # typefout: moet III.5 zijn
-            "III.1 Paulus RUTJENS, zn. van II.2\n"
+            "\t•\tGertrudis DEKKER, 1744, zie III.4\n"
+            "\t•\tJohannes DEKKER, 1749, zie III.4\n"  # typefout: moet III.5 zijn
+            "III.1 Willem DEKKER, zn. van II.2\n"
             "* 1727\n"
-            "III.4 Gertrudis RUTJENS, dr. van II.2\n"
+            "III.4 Gertrudis DEKKER, dr. van II.2\n"
             "△ 18-09-1744\n"
-            "III.5 Joannes RUTJENS, zn. van II.2\n"
+            "III.5 Johannes DEKKER, zn. van II.2\n"
             "△ 18-04-1749\n"
         )
         self.parser.parse(text)
@@ -1324,29 +1324,29 @@ class TestDuplicateChildRef:
         """
         Bij "zie III.4" typefout (moet III.5 zijn) moet III.5 alsnog de FAMC
         van het tweede huwelijk krijgen (niet het eerste).
-        III.4 (Gertrudis, △ 1744) en III.5 (Joannes, △ 1749) moeten
+        III.4 (Gertrudis, △ 1744) en III.5 (Johannes, △ 1749) moeten
         dezelfde ouder-familie hebben.
         """
         import tempfile
         import os
 
         text = (
-            "II.2 Henricus RUTJENS, zn. van I.1\n"
+            "II.2 Cornelis DEKKER, zn. van I.1\n"
             "* ±1704\n"
             "Tr. ±1726 met\n"
             "Aleida DERKS\n"
             "Uit (1):\n"
-            "\t•\tPaulus RUTJENS, 1727, zie III.1.\n"
+            "\t•\tWillem DEKKER, 1727, zie III.1.\n"
             "Tr. ±1731 met\n"
-            "(2) Theodora ALBERS\n"
+            "(2) Johanna ALBERS\n"
             "Uit (2):\n"
-            "\t•\tGertrudis RUTJENS, 1744, zie III.4\n"
-            "\t•\tJoannes RUTJENS, 1749, zie III.4\n"  # typefout: moet III.5 zijn
-            "III.1 Paulus RUTJENS, zn. van II.2\n"
+            "\t•\tGertrudis DEKKER, 1744, zie III.4\n"
+            "\t•\tJohannes DEKKER, 1749, zie III.4\n"  # typefout: moet III.5 zijn
+            "III.1 Willem DEKKER, zn. van II.2\n"
             "* 1727\n"
-            "III.4 Gertrudis RUTJENS, dr. van II.2\n"
+            "III.4 Gertrudis DEKKER, dr. van II.2\n"
             "△ 18-09-1744\n"
-            "III.5 Joannes RUTJENS, zn. van II.2\n"
+            "III.5 Johannes DEKKER, zn. van II.2\n"
             "△ 18-04-1749\n"
         )
         self.parser.parse(text)
@@ -1360,7 +1360,7 @@ class TestDuplicateChildRef:
             with open(temp_file, 'r', encoding='utf-8') as f:
                 lines = f.readlines()
 
-            # Zoek FAMC voor Gertrudis (△ 1744) en Joannes (△ 1749)
+            # Zoek FAMC voor Gertrudis (△ 1744) en Johannes (△ 1749)
             def find_famc(name_fragment):
                 in_person = False
                 for line in lines:
@@ -1372,14 +1372,14 @@ class TestDuplicateChildRef:
                         return line.strip().split()[-1]
                 return None
 
-            gertrudis_famc = find_famc("Gertrudis /Rutjens/")
-            joannes_famc = find_famc("Joannes /Rutjens/")
+            gertrudis_famc = find_famc("Gertrudis /Dekker/")
+            joannes_famc = find_famc("Johannes /Dekker/")
 
             assert gertrudis_famc is not None, "Gertrudis heeft geen FAMC"
             assert joannes_famc is not None, \
-                "III.5 Joannes heeft geen FAMC — moet aan tweede huwelijk gekoppeld zijn"
+                "III.5 Johannes heeft geen FAMC — moet aan tweede huwelijk gekoppeld zijn"
             assert joannes_famc == gertrudis_famc, (
-                f"III.5 Joannes (FAMC {joannes_famc}) en Gertrudis (FAMC {gertrudis_famc}) "
+                f"III.5 Johannes (FAMC {joannes_famc}) en Gertrudis (FAMC {gertrudis_famc}) "
                 f"moeten dezelfde familie (tweede huwelijk) hebben"
             )
 
@@ -1402,7 +1402,7 @@ class TestMetSeenGuard:
     def test_archival_note_not_stored_as_spouse(self):
         """Archief-inschrijving vóór 'met' mag niet als partnernaam worden opgeslagen."""
         text = (
-            "II.1 Aldegondis RUTJES, dr. van I.1\n"
+            "II.1 Cornelia VISSER, dr. van I.1\n"
             "Tr. Ned. Ger. Kekerdom 01-11-1725 (DTB Kekerdom, nr. 1) Gendt,Ned.Ger., 1725-14-Oct\n"
             "Ingeschreven Otto Lintsen I.M.van Cranenburg en Aeltjen Rutgers I.D. beijde wonende in de Erlekom.\n"
             "Den 4 Nov;Publijk in onse kerck gecopuleert.\n"
@@ -1426,7 +1426,7 @@ class TestMetSeenGuard:
     def test_met_on_next_line_still_works(self):
         """'met' op een eigen regel na de Tr.-regel moet de partner activeren."""
         text = (
-            "I.1 Henricus RUTJENS\n"
+            "I.1 Cornelis DEKKER\n"
             "Tr. ±1726 met\n"
             "Aleida DERKS\n"
         )
@@ -1439,7 +1439,7 @@ class TestMetSeenGuard:
     def test_met_inline_with_name_on_tr_line(self):
         """'met Naam' op de Tr.-regel moet inline worden verwerkt."""
         text = (
-            "I.1 Henricus RUTJENS\n"
+            "I.1 Cornelis DEKKER\n"
             "Tr. Beers 23-04-1702 met Maria VAN BERCK\n"
         )
         self.parser.parse(text)
@@ -1509,7 +1509,7 @@ class TestWitnesses:
     def test_baptism_witnesses_main_person(self):
         """Doopgetuigen van hoofdpersoon"""
         p = StamboomParser()
-        text = """I.1 Joannes RUTJES
+        text = """I.1 Johannes VISSER
 △ Zyfflich 16-11-1679, gett. Caspar Janssen en Aleida Gerrits
 """
         p.parse(text)
@@ -1522,16 +1522,16 @@ class TestWitnesses:
     def test_baptism_witnesses_child(self):
         """Doopgetuigen van kind"""
         p = StamboomParser()
-        text = """I.1 Joannes RUTJES
+        text = """I.1 Johannes VISSER
 * Erlecom
 Tr. met
 Maria JANSSEN
 Hieruit:
-Petrus RUTJES
+Cornelis VISSER
 RK △ Duiven 28-01-1780, gett. Ruth Lem en Hendrina Scholten
 """
         p.parse(text)
-        petrus = [c for c in p.unnamed_children if "Petrus" in c.name]
+        petrus = [c for c in p.unnamed_children if "Cornelis" in c.name]
         assert len(petrus) == 1
         assert petrus[0].baptism_date == "28-01-1780"
         assert "Ruth Lem" in petrus[0].baptism_witnesses
@@ -1540,7 +1540,7 @@ RK △ Duiven 28-01-1780, gett. Ruth Lem en Hendrina Scholten
     def test_marriage_witnesses_parentheses(self):
         """Huwelijksgetuigen tussen haakjes"""
         p = StamboomParser()
-        text = """I.1 Joannes RUTJES
+        text = """I.1 Johannes VISSER
 * Erlecom
 Tr. RK Leuth 19-05-1772 (gett. Rutgeris Lem, Joanna Lem) met
 Maria JANSSEN
@@ -1555,15 +1555,15 @@ Maria JANSSEN
     def test_marriage_witnesses_comma_separated(self):
         """Huwelijksgetuigen komma-gescheiden"""
         p = StamboomParser()
-        text = """I.1 Joannes RUTJES
+        text = """I.1 Johannes VISSER
 * Erlecom
-Tr. RK Leuth 11-05-1765, gett. Petrus Janssen, Joanna Leensen, met
+Tr. RK Leuth 11-05-1765, gett. Cornelis Janssen, Joanna Leensen, met
 Maria JANSSEN
 """
         p.parse(text)
         person = p.persons["I.1"]
         assert len(person.marriages) == 1
-        assert "Petrus Janssen" in person.marriages[0].witnesses
+        assert "Cornelis Janssen" in person.marriages[0].witnesses
         assert "Joanna Leensen" in person.marriages[0].witnesses
 
     def test_parse_witnesses_helper(self):

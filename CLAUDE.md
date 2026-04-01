@@ -17,7 +17,7 @@ source venv/bin/activate
 
 # Run kwartierstaat converter
 python3 import_kwartierstaat.py
-# Input: kwartierstaat TT excel.xlsx
+# Input: kwartierstaat voorbeeld.xlsx
 # Output: gedcom/kwartierstaat.ged
 
 # Run stamboom converter (macOS only - uses textutil)
@@ -25,16 +25,16 @@ python3 import_kwartierstaat.py
 python3 import_stamboom_doc.py
 # Outputs: One .ged file per input in gedcom/ directory
 #   - gedcom/JONGE_DE_3_X.ged
-#   - gedcom/THOMASSEN_16_David.ged
+#   - gedcom/BAKKER_16_David.ged
 #   - gedcom/WETELING_1_Philippus.ged
-#   - gedcom/RUTJES_9.ged
+#   - gedcom/VISSER_9.ged
 
 # Process a specific file
-python3 import_stamboom_doc.py stambomen/THOMASSEN\ 16\ David.doc
-# Output: gedcom/THOMASSEN_16_David.ged
+python3 import_stamboom_doc.py stambomen/BAKKER\ 16\ David.doc
+# Output: gedcom/BAKKER_16_David.ged
 
 # Specify custom output filename (still goes to gedcom/ directory)
-python3 import_stamboom_doc.py stambomen/THOMASSEN\ 16\ David.doc custom_output.ged
+python3 import_stamboom_doc.py stambomen/BAKKER\ 16\ David.doc custom_output.ged
 # Output: gedcom/custom_output.ged
 ```
 
@@ -55,13 +55,13 @@ pip install pandas openpyxl pytest
 .
 ├── stambomen/              # Input: Word documents (.doc/.docx)
 │   ├── JONGE DE 3 X.doc
-│   ├── RUTJES 9.docx
-│   ├── THOMASSEN 16 David.doc
+│   ├── VISSER 9.docx
+│   ├── BAKKER 16 David.doc
 │   └── WETELING 1 Philippus.doc
 ├── gedcom/                 # Output: Generated GEDCOM files
 │   ├── JONGE_DE_3_X.ged
-│   ├── RUTJES_9.ged
-│   ├── THOMASSEN_16_David.ged
+│   ├── VISSER_9.ged
+│   ├── BAKKER_16_David.ged
 │   ├── WETELING_1_Philippus.ged
 │   └── kwartierstaat.ged
 ├── import_stamboom_doc.py  # Stamboom converter
@@ -230,7 +230,7 @@ Document must have:
 ## File Naming
 
 Input files are currently hardcoded:
-- Kwartierstaat: `kwartierstaat TT excel.xlsx`
-- Stamboom: `THOMASSEN 16 David.doc`
+- Kwartierstaat: `kwartierstaat voorbeeld.xlsx`
+- Stamboom: `BAKKER 16 David.doc`
 
 To change filenames, modify the `main()` function in respective scripts.

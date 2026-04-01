@@ -42,7 +42,7 @@ source venv/bin/activate
 python3 import_stamboom_doc.py
 ```
 
-**Input**: `THOMASSEN 16 David.doc`
+**Input**: `BAKKER 16 David.doc`
 **Output**: `stamboom.ged`
 
 ### Vereisten
@@ -57,7 +57,7 @@ python3 import_stamboom_doc.py
 Stamboom Word Document naar GEDCOM Converter
 ============================================================
 
-Lezen van THOMASSEN 16 David.doc...
+Lezen van BAKKER 16 David.doc...
 Document gelezen: 96873 karakters
 
 Parsen van stamboom...
@@ -108,7 +108,7 @@ II.1 Thomas Jans, zn. van I.1 [256]
 Otr. / tr. NG Beers 23-04 / 07-05-1702 met
 Mariken (Maria) Hendricks [257]
 Hieruit:
-Jan (Joannes) Thomassen, 1703, zie III.1
+Jan (Joannes) Bakker, 1703, zie III.1
 ```
 
 ### Wat wordt gegenereerd
@@ -165,8 +165,8 @@ Het Excel bestand moet de volgende kolommen bevatten (zonder header rij):
 | Kolom 0 | Kolom 1 | Kolom 2 | Kolom 3 | Kolom 4 | Kolom 5 |
 |---------|---------|---------|---------|---------|---------|
 | Generatie nr | Kwartiernr | Naam | Geboorte | Overlijden | Huwelijk |
-| 1.0 | 1.0 | Theo Henri Paul Maria Thomassen | Rotterdam 1950 | | Rotterdam 1989 |
-| 2.0 | 2.0 | Theo Albert Maria Thomassen | Rotterdam 1920 | Den Haag 1994 | Rotterdam 1948 |
+| 1.0 | 1.0 | Jan Willem Hendrik Bakker | Rotterdam 1950 | | Rotterdam 1989 |
+| 2.0 | 2.0 | Pieter Cornelis Bakker | Rotterdam 1920 | Den Haag 1994 | Rotterdam 1948 |
 | | 3.0 | Antoinetta Maria Theresia de Jonge | Oirschot 1926 | Den Haag 2013 | |
 
 **Opmerkingen:**
@@ -195,7 +195,7 @@ Het script genereert automatisch het bestand `kwartierstaat.ged`.
 Kwartierstaat naar GEDCOM Converter
 ==================================================
 
-Lezen van kwartierstaat TT excel.xlsx...
+Lezen van kwartierstaat voorbeeld.xlsx...
 Gevonden: 6746 personen
 
 Maken van familierelaties...
@@ -207,7 +207,7 @@ Genereren van kwartierstaat.ged...
   - 2633 families
 
 Hoofdpersoon (1):
-  Naam: Theo Henri Paul Maria Thomassen
+  Naam: Jan Willem Hendrik Bakker
   Geboren: 1950 in Rotterdam
   Overleden: ? in ?
 ```
@@ -270,7 +270,7 @@ Het gegenereerde GEDCOM bestand bevat:
 1 CHAR UTF-8
 
 0 @I1@ INDI
-1 NAME Theo Henri Paul Maria Thomassen
+1 NAME Jan Willem Hendrik Bakker
 1 SEX M
 1 BIRT
 2 DATE 1950
@@ -331,7 +331,7 @@ source venv/bin/activate
 pip install pandas openpyxl
 ```
 
-### "FileNotFoundError: kwartierstaat TT excel.xlsx"
+### "FileNotFoundError: kwartierstaat voorbeeld.xlsx"
 Zorg dat je in de juiste directory bent:
 ```bash
 cd ~/Lab/_python/gedcom

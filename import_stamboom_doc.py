@@ -10,7 +10,7 @@ Gebruik:
     python3 import_stamboom_doc.py
 
 Het script verwacht:
-- Input: THOMASSEN 16 David.doc
+- Input: BAKKER 12 Jan.doc
 - Output: stamboom.ged
 
 De parser herkent:
@@ -1544,7 +1544,7 @@ class StamboomParser:
 
             # Kijk of het een verwijzing naar een kind is
             # "Jan (Joannes) Thomassen, 1703, zie III.1"
-            # Of: "• Agnes RUTJES, 1803, zie V.10" (met bullet point)
+            # Of: "• Anna VISSER, 1803, zie V.10" (met bullet point)
             child_match = re.search(r"zie\s+([IVX]+\.\d+)", line)
             if child_match:
                 child_ref = child_match.group(1)
@@ -1554,7 +1554,7 @@ class StamboomParser:
                 
                 # Duplicaat-fix: als vorige regel ALLEEN naam bevat en huidige regel plaats/jaar + zie
                 # (geen andere naam op huidig regel), dan vervang het unnamed child door referentie.
-                # Bijv: "Hermina RUTJES" (vorige) + "Bergharen 1820, zie V.14" (huidig) → één persoon
+                # Bijv: "Helena VISSER" (vorige) + "Bergharen 1820, zie V.14" (huidig) → één persoon
                 # Maar "Remigius Jozef Maria PELT, zie IX.30" (huidig, met naam) → twee personen
                 before_zie = line[:line.index('zie')].strip().rstrip(',;')
                 has_name_before_zie = bool(re.search(r'[A-Z][A-Za-z\s]+[A-Z]', before_zie))
@@ -1626,7 +1626,7 @@ class StamboomParser:
                     parent_surname = None
                     if self.current_person and self.current_person.name:
                         # Extract achternaam van de huidige persoon
-                        # Bijvoorbeeld: "Jo(h)annes (Jan) THOMASSEN" -> "THOMASSEN"
+                        # Bijvoorbeeld: "Jo(h)annes (Jan) BAKKER" -> "BAKKER"
                         # Of genormaliseerd: "Johannes (Jan) Thomassen" -> "Thomassen"
                         name_parts = self.current_person.name.split()
                         if name_parts:
@@ -1666,7 +1666,7 @@ class StamboomParser:
                 child_line = re.sub(r'^\d+\.?\s*\t\s*', '', child_line)  # "1.\tElisabeth" → "Elisabeth"
                 child_line = re.sub(r'^\(Hyp\.?\)\s*', '', child_line, flags=re.IGNORECASE)
 
-                # In dit document hebben kindnamen altijd een ACHTERNAAM IN HOOFDLETTERS (bijv. "THOMASSEN")
+                # In dit document hebben kindnamen altijd een ACHTERNAAM IN HOOFDLETTERS (bijv. "BAKKER")
                 # Regels zonder 3+ aaneengesloten hoofdletters VOOR DE EERSTE KOMMA zijn notities, geen kindnamen
                 # Bijv. "Gouda." (woonplaats) of "Ongehuwd, huishoudster bij haar broer..."
                 # Check alleen het naamgedeelte (voor komma buiten haakjes) om archiefcodes na komma te negeren
@@ -1859,7 +1859,7 @@ class StamboomParser:
 
             # Check of dit een impliciete echtgeno(o)t(e)-naam is zonder "Tr."-regel.
             # Patroon: "Voornaam ACHTERNAAM" direct voor "Hieruit:", zonder huwelijksmarkering.
-            # Voorbeeld: "Elisabeth VAN KESTEREN" als vrouw van III.3 Wilhelmus RUTJENS.
+            # Voorbeeld: "Anna VAN BERGEN" als vrouw van III.3 Petrus DEKKER.
             # Criteria (conservatief om valse positieven te voorkomen):
             #   - Niet in kinderensectie
             #   - 2–5 woorden (korte naam, geen beschrijvingszin)
@@ -2525,7 +2525,7 @@ def process_file(doc_file, output_file=None, output_dir=None, verbose=True):
 
     # Bepaal output bestandsnaam
     if output_file is None:
-        # Converteer bijv. "THOMASSEN 16 David.doc" naar "gedcom/THOMASSEN_16_David.ged"
+        # Converteer bijv. "BAKKER 12 Jan.doc" naar "gedcom/BAKKER_12_Jan.ged"
         doc_path = Path(doc_file)
         output_name = doc_path.stem.replace(" ", "_") + ".ged"
         output_file = output_dir / output_name

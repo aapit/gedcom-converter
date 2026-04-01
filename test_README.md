@@ -81,7 +81,7 @@ mother = "Anna Catharina Teeuwen"  # Beroep en adres gefilterd
 ### Generatie ID met Punt
 ```python
 # Input:
-"VII.5. Albertus Hendrikus THOMASSEN, zn. van VI.3"
+"VII.5. Albertus Hendrikus BAKKER, zn. van VI.3"
 
 # Output:
 generation_id = "VII.5"  # Punt correct verwijderd
