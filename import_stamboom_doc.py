@@ -71,6 +71,10 @@ class Marriage:
         self.spouse_birth_place = None
         self.spouse_death_date = None
         self.spouse_death_place = None
+        self.spouse_baptism_date = None
+        self.spouse_baptism_place = None
+        self.spouse_burial_date = None
+        self.spouse_burial_place = None
         self.spouse_father_name = None  # Naam van vader van partner
         self.spouse_mother_name = None  # Naam van moeder van partner
         self.witnesses = []
@@ -111,6 +115,41 @@ class StamboomParser:
         self.pending_name_variants = []  # Tijdelijke opslag voor naamvarianten van hetzelfde kind
         self.last_child_marriage = None  # Laatste huwelijk van kind, voor ouder-info op volgende regel
         self.current_child_spouse_stored = False  # True nadat partner van kind is opgeslagen (voorkomt dat * / △ / † de kind-data overschrijft)
+
+    def parse_witnesses(self, text):
+        """Extract getuigen uit tekst met 'gett.' of 'get.' patroon.
+        
+        Returns tuple (clean_text, witnesses_list).
+        clean_text is de tekst zonder getuigen-deel.
+        witnesses_list is lijst van getuigennamen.
+        """
+        if not text:
+            return text, []
+        
+        # Split op gett./get.
+        parts = re.split(r',?\s*gett?\.?\s*', text, maxsplit=1)
+        if len(parts) < 2:
+            return text, []
+        
+        clean_text = parts[0].strip()
+        witness_text = parts[1].strip()
+        
+        # Verwijder alles na ; of † of ▭ of Tr. (dat is geen getuigen-info meer)
+        witness_text = re.split(r'[;†▭]|\bTr\.|\bdr\.\s*van\b|\bzn\.\s*van\b', witness_text)[0].strip()
+        
+        # Split op ", " en " en " om individuele namen te krijgen
+        raw_names = re.split(r',\s+|\s+en\s+', witness_text)
+        
+        # Filter: alleen echte namen behouden (minstens 2 woorden, begint met hoofdletter)
+        witnesses = []
+        for name in raw_names:
+            name = name.strip().rstrip('.,;)')
+            if name and re.match(r'^[A-Z]', name) and len(name) > 2:
+                # Skip als het een bronvermelding is (DTB, BS, etc.)
+                if not re.match(r'^(DTB|BS|RK|NG|NH)\b', name):
+                    witnesses.append(name)
+        
+        return clean_text, witnesses
 
     def normalize_name(self, name):
         """Converteer all-caps namen naar title case"""
@@ -189,14 +228,57 @@ class StamboomParser:
         return " ".join(normalized_words)
 
     def read_doc_file(self, doc_path):
-        """Lees .doc of .docx bestand en converteer naar tekst met textutil (macOS)"""
-        result = subprocess.run(
-            ["textutil", "-convert", "txt", doc_path, "-stdout"],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        return result.stdout
+        """Lees .doc of .docx bestand en converteer naar tekst.
+        
+        .txt bestanden worden direct gelezen.
+        .doc/.docx bestanden worden geconverteerd met textutil (macOS) of antiword/python-docx.
+        """
+        doc_path = str(doc_path)
+        
+        # .txt bestanden direct lezen
+        if doc_path.endswith('.txt'):
+            with open(doc_path, 'r', encoding='utf-8') as f:
+                return f.read()
+        
+        # .docx via python-docx als fallback
+        if doc_path.endswith('.docx'):
+            try:
+                result = subprocess.run(
+                    ["textutil", "-convert", "txt", doc_path, "-stdout"],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+                return result.stdout
+            except (FileNotFoundError, subprocess.CalledProcessError):
+                # Fallback: python-docx
+                try:
+                    import docx
+                    doc = docx.Document(doc_path)
+                    return '\n'.join(p.text for p in doc.paragraphs)
+                except ImportError:
+                    raise RuntimeError(f"Kan {doc_path} niet lezen: textutil niet beschikbaar en python-docx niet geïnstalleerd")
+        
+        # .doc via textutil of antiword
+        try:
+            result = subprocess.run(
+                ["textutil", "-convert", "txt", doc_path, "-stdout"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            return result.stdout
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            try:
+                result = subprocess.run(
+                    ["antiword", doc_path],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+                return result.stdout
+            except (FileNotFoundError, subprocess.CalledProcessError):
+                raise RuntimeError(f"Kan {doc_path} niet lezen: textutil en antiword niet beschikbaar")
 
     def parse_date(self, text):
         """Parse datum uit verschillende formaten"""
@@ -210,14 +292,35 @@ class StamboomParser:
         patterns = [
             r"(\d{1,2}-\d{1,2}-\d{4})",  # 30-06-1703 (volledige datum eerst!)
             r"(\d{1,2}/\d{1,2}/\d{4})",  # 30/06/1703
+            r"(\d{4})/(\d{4})",  # 1786/1787 (slash-jaar: "tussen jaar1 en jaar2")
             r"([<>±]?\s*\d{4})",  # ±1645, <1800, >1900, of 1645
         ]
 
         for pattern in patterns:
             match = re.search(pattern, text)
             if match:
+                # Slash-jaar patroon: twee capture groups → GEDCOM "BET x AND y"
+                if match.lastindex == 2:
+                    return f"BET {match.group(1)} AND {match.group(2)}"
                 return match.group(1).strip()
 
+        return None
+
+    def _find_date_span_in_text(self, text):
+        """Vind de originele tekst-span van de datum in de input string.
+        Retourneert (start, end) indices of None als geen datum gevonden."""
+        if not text:
+            return None
+        patterns = [
+            r"\d{1,2}-\d{1,2}-\d{4}",  # 30-06-1703
+            r"\d{1,2}/\d{1,2}/\d{4}",  # 30/06/1703
+            r"\d{4}/\d{4}",  # 1786/1787
+            r"[<>±]?\s*\d{4}",  # ±1645, <1800, >1900, 1645
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, text)
+            if match:
+                return match.start(), match.end()
         return None
 
     def parse_place_date(self, text):
@@ -231,7 +334,12 @@ class StamboomParser:
         # Plaats is meestal voor de datum
         place = None
         if date:
-            parts = text.split(date)
+            # Gebruik de originele tekst-span om de plaats te bepalen
+            span = self._find_date_span_in_text(text)
+            if span:
+                parts = [text[:span[0]], text[span[1]:]]
+            else:
+                parts = text.split(date)
             if parts[0].strip():
                 place = parts[0].strip()
                 # Verwijder eventuele symbolen en prefixen aan het begin:
@@ -629,6 +737,16 @@ class StamboomParser:
                 # Dit is een kind zonder generatie ID - sla geboorte info op
                 self.current_child.birth_place = place
                 self.current_child.birth_date = date
+            elif self.in_children_section and self.current_child and self.current_child_spouse_stored and self.current_child.marriages:
+                # Spouse van kind: geboorte info na partner naam
+                self.current_child.marriages[-1].spouse_birth_place = place
+                self.current_child.marriages[-1].spouse_birth_date = date
+                # Parse ouders van partner
+                full_rest = line[1:].strip()
+                father_name, mother_name = self.parse_spouse_parents(full_rest)
+                if father_name and mother_name:
+                    self.current_child.marriages[-1].spouse_father_name = father_name
+                    self.current_child.marriages[-1].spouse_mother_name = mother_name
             elif self.in_children_section:
                 # Negeer - kinderen sectie maar geen current_child
                 pass
@@ -652,18 +770,21 @@ class StamboomParser:
             # Parse doop info als die op dezelfde * regel stond (bijv. "* Erlecom, △ Kekerdom 10-04-1712")
             if baptism_part:
                 # Verwerk gett./get. getuigen in de doopinfo
-                bap_witnesses = []
-                if "gett." in baptism_part or "get." in baptism_part:
-                    bap_parts = re.split(r',?\s*gett?\.?\s*', baptism_part)
-                    bap_place_date_str = bap_parts[0].strip()
-                    if len(bap_parts) > 1:
-                        bap_witnesses = [w.strip() for w in bap_parts[1].split(" en ")]
-                else:
+                bap_place_date_str, bap_witnesses = self.parse_witnesses(baptism_part)
+                if not bap_witnesses:
                     bap_place_date_str = baptism_part
                 bap_place, bap_date = self.parse_place_date(bap_place_date_str)
                 if self.in_children_section and self.current_child and not self.current_child_spouse_stored:
                     self.current_child.baptism_place = bap_place
                     self.current_child.baptism_date = bap_date
+                    if bap_witnesses:
+                        self.current_child.baptism_witnesses = bap_witnesses
+                elif self.in_children_section and self.current_child and self.current_child_spouse_stored and self.current_child.marriages:
+                    self.current_child.marriages[-1].spouse_baptism_place = bap_place
+                    self.current_child.marriages[-1].spouse_baptism_date = bap_date
+                elif self.parsing_spouse_info and self.current_marriage:
+                    self.current_marriage.spouse_baptism_place = bap_place
+                    self.current_marriage.spouse_baptism_date = bap_date
                 elif not self.in_children_section and not self.parsing_spouse_info:
                     self.current_person.baptism_place = bap_place
                     self.current_person.baptism_date = bap_date
@@ -672,10 +793,54 @@ class StamboomParser:
 
             # Parse sterfte info als die op dezelfde regel staat
             if death_part:
+                # Splits death_part op ▭ als die erin zit
+                # Bijv: "Huissen 19-08-1791 (inwendige kwaal) en ▭ aldaar 25-08-1791"
+                # Bijv: "Duiven 26-09-1944 tgv een granaatontploffing, ▭ Duiven 28-09-1944"
+                # Bijv: "en ▭ Kekerdom 18-11 / 22-11-1753" († en ▭ patroon)
+                if '▭' in death_part:
+                    bur_split = re.split(r'(?:,?\s*(?:en\s+)?|;\s*)▭\s*', death_part, maxsplit=1)
+                    death_part_clean = bur_split[0].strip().rstrip('.,;')
+                    if len(bur_split) > 1:
+                        burial_extra = bur_split[1].strip()
+                        # "aldaar" verwijst naar de overlijdensplaats
+                        if burial_extra.startswith('aldaar'):
+                            death_place_tmp, _ = self.parse_place_date(death_part_clean)
+                            burial_extra = burial_extra.replace('aldaar', death_place_tmp or '', 1).strip()
+                        
+                        # "† en ▭ Plaats DD-MM / DD-MM-YYYY" patroon:
+                        # Overlijden en begraven op dezelfde plaats, twee datums gescheiden door /
+                        # Bijv: "† en ▭ Kekerdom 18-11 / 22-11-1753"
+                        if not death_part_clean or death_part_clean.lower() in ('en', ''):
+                            # death_part was leeg na strip → "† en ▭" patroon
+                            # Check of burial_extra een "DD-MM / DD-MM-YYYY" bevat
+                            dual_date = re.search(r'(\d{1,2}-\d{1,2})\s*/\s*(\d{1,2}-\d{1,2}-\d{4})', burial_extra)
+                            if dual_date:
+                                # Eerste datum = overlijden, tweede = begraven
+                                death_date_str = dual_date.group(1)
+                                burial_date_str = dual_date.group(2)
+                                # Voeg jaar toe aan overlijdensdatum
+                                year = re.search(r'\d{4}$', burial_date_str).group()
+                                death_date_str = f"{death_date_str}-{year}"
+                                # Extract plaats (alles voor de eerste datum)
+                                place_str = burial_extra[:dual_date.start()].strip().rstrip('.,;')
+                                # Strip alles na de tweede datum
+                                burial_extra_clean = f"{place_str} {burial_date_str}".strip()
+                                death_part_clean = f"{place_str} {death_date_str}".strip()
+                                burial_extra = burial_extra_clean
+                        
+                        if not burial_part:
+                            burial_part = burial_extra
+                    # Handle "en ▭" case where death_part starts with "en "
+                    death_part_clean = re.sub(r'^en\s+', '', death_part_clean).strip()
+                    death_part = death_part_clean
+
                 death_place, death_date = self.parse_place_date(death_part)
-                if self.in_children_section and self.current_child:
+                if self.in_children_section and self.current_child and not self.current_child_spouse_stored:
                     self.current_child.death_place = death_place
                     self.current_child.death_date = death_date
+                elif self.in_children_section and self.current_child and self.current_child_spouse_stored and self.current_child.marriages:
+                    self.current_child.marriages[-1].spouse_death_place = death_place
+                    self.current_child.marriages[-1].spouse_death_date = death_date
                 elif self.parsing_spouse_info and self.current_marriage:
                     self.current_marriage.spouse_death_place = death_place
                     self.current_marriage.spouse_death_date = death_date
@@ -686,9 +851,16 @@ class StamboomParser:
             # Parse begrafenis info als die op dezelfde regel staat (bijv. "* ±1672. ▭ Kekerdom 18-04-1723")
             if burial_part:
                 burial_place, burial_date = self.parse_place_date(burial_part)
-                if self.in_children_section and self.current_child:
+                if self.in_children_section and self.current_child and not self.current_child_spouse_stored:
                     self.current_child.burial_place = burial_place
                     self.current_child.burial_date = burial_date
+                elif self.in_children_section and self.current_child and self.current_child_spouse_stored and self.current_child.marriages:
+                    # Spouse van kind: * regel na partner naam
+                    self.current_child.marriages[-1].spouse_burial_place = burial_place
+                    self.current_child.marriages[-1].spouse_burial_date = burial_date
+                elif self.parsing_spouse_info and self.current_marriage:
+                    self.current_marriage.spouse_burial_place = burial_place
+                    self.current_marriage.spouse_burial_date = burial_date
                 elif not self.in_children_section and not self.parsing_spouse_info:
                     self.current_person.burial_place = burial_place
                     self.current_person.burial_date = burial_date
@@ -725,51 +897,140 @@ class StamboomParser:
                     self.current_marriage.marriage_date = date
 
         # Parse gedoopt (△ of Δ)
-        elif line.startswith("△") or line.startswith("Δ"):
+        elif line.startswith("△") or line.startswith("Δ") or re.match(r'^RK\s+[△Δ]', line):
+            rest = line.lstrip('△ΔRK ').strip()
+            if line.startswith("RK"):
+                rest = re.sub(r'^RK\s+[△Δ]\s*', '', line).strip()
+            else:
+                rest = line[1:].strip()
+            
+            # ─── Splits op †/▭ in de HELE rest (ook na getuigen/;) ───
+            death_part = None
+            burial_part = None
+            
+            # Zoek †/▭ posities in de hele rest string
+            dth_pos = rest.find('†')
+            bur_pos = rest.find('▭')
+            
+            if dth_pos != -1 and (bur_pos == -1 or dth_pos < bur_pos):
+                # △ ... † ... [▭ ...]
+                after_death = rest[dth_pos + 1:].strip()
+                rest = rest[:dth_pos].strip().rstrip('.,;')
+                if '▭' in after_death:
+                    p = after_death.split('▭', 1)
+                    death_part = p[0].strip().rstrip('.,;')
+                    burial_part = p[1].strip()
+                else:
+                    death_part = after_death
+            elif bur_pos != -1:
+                # △ ... ▭ ... (geen †)
+                # Alles na ▭ (inclusief na ;) is burial info
+                burial_part_raw = rest[bur_pos + 1:].strip()
+                rest = rest[:bur_pos].strip().rstrip('.,;')
+                burial_part = burial_part_raw
+            
+            # Parse de doop info (verwijder getuigen)
+            bap_place_date_str, bap_witnesses = self.parse_witnesses(rest)
+            if not bap_witnesses:
+                bap_place_date_str = rest
+            
+            bap_place, bap_date = self.parse_place_date(bap_place_date_str)
+            
             # In kinderen sectie: markeer dat current_child een doop heeft en sla info op
             if self.in_children_section and self.current_child and not self.current_child_spouse_stored:
                 self.current_child_has_baptism = True
                 # Reset child_marriage_context omdat Δ altijd een nieuw kind aangeeft
                 self.child_marriage_context = False
                 self.child_marriage_lines_seen = 0
-                # Sla doopinfo op voor het kind
-                rest = line[1:].strip()
-                if "gett." in rest or "get." in rest:
-                    parts = re.split(r",?\s*gett?\.?\s*", rest)
-                    if parts:
-                        place, date = self.parse_place_date(parts[0])
-                        self.current_child.baptism_place = place
-                        self.current_child.baptism_date = date
-                else:
-                    place, date = self.parse_place_date(rest)
-                    self.current_child.baptism_place = place
-                    self.current_child.baptism_date = date
-            # Negeer doop data details in partner info sectie (kinderen al verwerkt hierboven)
+                self.current_child.baptism_place = bap_place
+                self.current_child.baptism_date = bap_date
+                if bap_witnesses:
+                    self.current_child.baptism_witnesses = bap_witnesses
+                # Sla overlijden/begraven op voor het kind
+                if death_part:
+                    dplace, ddate = self.parse_place_date(death_part)
+                    self.current_child.death_place = dplace
+                    self.current_child.death_date = ddate
+                if burial_part:
+                    bplace, bdate = self.parse_place_date(burial_part)
+                    self.current_child.burial_place = bplace
+                    self.current_child.burial_date = bdate
+            elif self.in_children_section and self.current_child and self.current_child_spouse_stored and self.current_child.marriages:
+                # Doop info voor de partner van een kind
+                self.current_child.marriages[-1].spouse_baptism_place = bap_place
+                self.current_child.marriages[-1].spouse_baptism_date = bap_date
+                if death_part:
+                    dplace, ddate = self.parse_place_date(death_part)
+                    self.current_child.marriages[-1].spouse_death_place = dplace
+                    self.current_child.marriages[-1].spouse_death_date = ddate
+                if burial_part:
+                    bplace, bdate = self.parse_place_date(burial_part)
+                    self.current_child.marriages[-1].spouse_burial_place = bplace
+                    self.current_child.marriages[-1].spouse_burial_date = bdate
+            elif self.parsing_spouse_info and self.current_marriage:
+                # Doop info voor partner
+                self.current_marriage.spouse_baptism_place = bap_place
+                self.current_marriage.spouse_baptism_date = bap_date
+                if death_part:
+                    dplace, ddate = self.parse_place_date(death_part)
+                    self.current_marriage.spouse_death_place = dplace
+                    self.current_marriage.spouse_death_date = ddate
+                if burial_part:
+                    bplace, bdate = self.parse_place_date(burial_part)
+                    self.current_marriage.spouse_burial_place = bplace
+                    self.current_marriage.spouse_burial_date = bdate
             elif not self.in_children_section and not self.parsing_spouse_info:
-                rest = line[1:].strip()
-                # Format: "RK Sint Anthonis 26-08-1707, gett. Derick Jans en Joanna Jans"
-                if "gett." in rest or "get." in rest:
-                    parts = re.split(r",?\s*gett?\.?\s*", rest)
-                    if len(parts) > 0:
-                        place, date = self.parse_place_date(parts[0])
-                        self.current_person.baptism_place = place
-                        self.current_person.baptism_date = date
-                    if len(parts) > 1:
-                        self.current_person.baptism_witnesses = [w.strip() for w in parts[1].split(" en ")]
-                else:
-                    place, date = self.parse_place_date(rest)
-                    self.current_person.baptism_place = place
-                    self.current_person.baptism_date = date
+                self.current_person.baptism_place = bap_place
+                self.current_person.baptism_date = bap_date
+                if bap_witnesses:
+                    self.current_person.baptism_witnesses = bap_witnesses
+                if death_part:
+                    dplace, ddate = self.parse_place_date(death_part)
+                    self.current_person.death_place = dplace
+                    self.current_person.death_date = ddate
+                if burial_part:
+                    bplace, bdate = self.parse_place_date(burial_part)
+                    self.current_person.burial_place = bplace
+                    self.current_person.burial_date = bdate
 
         # Parse overleden (†)
         elif line.startswith("†"):
-            place, date = self.parse_place_date(line[1:].strip())
+            rest = line[1:].strip()
+            
+            # ─── Splits op ▭ als die in de rest voorkomt ───
+            # Patronen: "† en ▭ Kekerdom 18-11/22-11-1753"
+            #           "† Huissen 19-08-1791 en ▭ aldaar 25-08-1791"
+            #           "† Duiven 26-09-1944, ▭ Duiven 28-09-1944"
+            #           "† Duiven 05-11, ▭ 07-11-1949"
+            #           "† Rijssen 08-09-1969 en ▭ aldaar 11-09-1969"
+            burial_part = None
+            if '▭' in rest:
+                # Split op ▭, met optionele "en " of ", " ervoor
+                bur_split = re.split(r'(?:,?\s*(?:en\s+)?|;\s*)▭\s*', rest, maxsplit=1)
+                rest = bur_split[0].strip().rstrip('.,;')
+                if len(bur_split) > 1:
+                    burial_raw = bur_split[1].strip()
+                    # "aldaar" verwijst naar de overlijdensplaats
+                    if burial_raw.startswith('aldaar'):
+                        # Parse de death part eerst om de plaats te krijgen
+                        death_place_tmp, _ = self.parse_place_date(rest)
+                        burial_raw = burial_raw.replace('aldaar', death_place_tmp or '', 1).strip()
+                    burial_part = burial_raw
+            
+            # "† en ▭" patroon: rest kan beginnen met "en " → strip dat
+            rest = re.sub(r'^en\s+', '', rest).strip()
+            
+            place, date = self.parse_place_date(rest)
 
             # Bepaal waar we deze info opslaan
             if self.in_children_section and self.current_child and not self.current_child_spouse_stored:
                 # Dit is een kind zonder generatie ID - sla overleden info op
                 self.current_child.death_place = place
                 self.current_child.death_date = date
+                if burial_part:
+                    bplace, bdate = self.parse_place_date(burial_part)
+                    self.current_child.burial_place = bplace
+                    self.current_child.burial_date = bdate
             elif self.in_children_section:
                 # Negeer - kinderen sectie maar geen current_child (of partner-info)
                 pass
@@ -777,19 +1038,41 @@ class StamboomParser:
                 # Dit is partner overleden info
                 self.current_marriage.spouse_death_place = place
                 self.current_marriage.spouse_death_date = date
+                if burial_part:
+                    bplace, bdate = self.parse_place_date(burial_part)
+                    self.current_marriage.spouse_burial_place = bplace
+                    self.current_marriage.spouse_burial_date = bdate
             else:
                 # Dit is de huidige persoon
                 self.current_person.death_place = place
                 self.current_person.death_date = date
+                if burial_part:
+                    bplace, bdate = self.parse_place_date(burial_part)
+                    self.current_person.burial_place = bplace
+                    self.current_person.burial_date = bdate
 
         # Parse begraven (▭)
-        elif "begr." in line.lower() or line.startswith("▭"):
-            # Negeer begraven data in kinderen sectie of partner info sectie
-            if not self.in_children_section and not self.parsing_spouse_info:
-                # "begr. RK Beers 14-02-1731"
+        # Herken ook regels als "infans (Pauli Rutjens) ▭ Zyfflich 07-11-1751"
+        elif "begr." in line.lower() or line.startswith("▭") or ('▭' in line and not line.startswith("*") and not line.startswith("△") and not line.startswith("Δ") and not line.startswith("†")):
+            # "begr. RK Beers 14-02-1731" of "▭ Zyfflich 25-07-1795"
+            # of "infans (Pauli Rutjens) ▭ Zyfflich 07-11-1751"
+            if '▭' in line:
+                rest = line.split('▭', 1)[1].strip()
+            else:
                 rest = re.sub(r"begr\.?\s*", "", line, flags=re.IGNORECASE).strip()
-                rest = rest.lstrip("▭").strip()
-                place, date = self.parse_place_date(rest)
+            place, date = self.parse_place_date(rest)
+
+            if self.in_children_section and self.current_child and not self.current_child_spouse_stored:
+                self.current_child.burial_place = place
+                self.current_child.burial_date = date
+            elif self.in_children_section and self.current_child and self.current_child_spouse_stored and self.current_child.marriages:
+                # Begraven info voor de partner van een kind
+                self.current_child.marriages[-1].spouse_burial_place = place
+                self.current_child.marriages[-1].spouse_burial_date = date
+            elif self.parsing_spouse_info and self.current_marriage:
+                self.current_marriage.spouse_burial_place = place
+                self.current_marriage.spouse_burial_date = date
+            elif not self.in_children_section and not self.parsing_spouse_info:
                 self.current_person.burial_place = place
                 self.current_person.burial_date = date
 
@@ -806,16 +1089,43 @@ class StamboomParser:
 
                     # Probeer plaats/datum te extraheren (bijv. "Tr. Beers 1758 met")
                     # Verwijder "Tr.", "met", etc.
-                    clean_text = re.sub(r'^(Relatie met|Ondertr\.|Otr?\.|Tr\.)\s*', '', marriage_text, flags=re.IGNORECASE)
+                    # Eerst: strip volledige "Otr. / tr." of "Ondertr. / tr." prefix
+                    clean_text = re.sub(r'^(?:ondertr\.?\s*/?\s*tr\.?|otr?\.?\s*/?\s*tr\.?|tr\.)\s*', '', marriage_text, flags=re.IGNORECASE)
                     clean_text = re.sub(r'\s+(met|with)\s*$', '', clean_text, flags=re.IGNORECASE).strip()
+                    # Strip haakjes-inhoud (archiefbronnen)
+                    clean_text = re.sub(r'\s*\([^)]*\)\s*$', '', clean_text).strip()
 
                     if clean_text:
-                        marriage_place, marriage_date = self.parse_place_date(clean_text)
+                        # Herken dual-date patroon: "Plaats DD-MM/DD-MM-YYYY" of "Plaats DD-MM / DD-MM-YYYY"
+                        dual_date_match = re.search(r'(\d{1,2}-\d{1,2})\s*/\s*(\d{1,2}-\d{1,2}-\d{4})', clean_text)
+                        if dual_date_match:
+                            eng_date_str = dual_date_match.group(1)
+                            mar_date_str = dual_date_match.group(2)
+                            year = re.search(r'\d{4}$', mar_date_str).group()
+                            eng_date_str = f"{eng_date_str}-{year}"
+                            place_str = clean_text[:dual_date_match.start()].strip().rstrip('.,;')
+                            marriage_place = place_str if place_str else None
+                            marriage_date = mar_date_str
+                        else:
+                            marriage_place, marriage_date = self.parse_place_date(clean_text)
 
+                    # Extract getuigen voor child marriage
+                    child_marriage_witnesses = []
+                    paren_w = re.search(r'\(gett?\.\s*([^)]+)\)', marriage_text)
+                    if paren_w:
+                        _, child_marriage_witnesses = self.parse_witnesses("gett. " + paren_w.group(1))
+                    elif re.search(r',\s*gett?\.\s*', marriage_text):
+                        gp = re.split(r',\s*gett?\.\s*', marriage_text, maxsplit=1)
+                        if len(gp) > 1:
+                            wt = re.split(r',?\s*\bmet\b', gp[1], maxsplit=1)[0]
+                            _, child_marriage_witnesses = self.parse_witnesses("gett. " + wt)
+                    
                     # Maak Marriage object voor het kind
                     marriage = Marriage()
                     marriage.marriage_place = marriage_place
                     marriage.marriage_date = marriage_date
+                    if child_marriage_witnesses:
+                        marriage.witnesses = child_marriage_witnesses
                     self.current_child.marriages.append(marriage)
                     # We gaan de partner naam op de volgende regel verwachten
                     self.parsing_spouse_info = True
@@ -841,16 +1151,52 @@ class StamboomParser:
             # Parse datum en plaats
             # "Otr. / tr. als jongeman  NG Beers 23-04 / 07-05-1702"
             # "Tr. RK Beers 11-05-1727 (gett. ...)"
+            # "Tr. RK Leuth 11-05-1765, gett. X, Y, met"
             # "Ondertr. / tr. Gendt 01-08/22-08-1697 met Maria VAN BERCK"
+            
+            # Extract huwelijksgetuigen (twee patronen)
+            marriage_witnesses = []
+            # Patroon 1: (gett. X en Y) of (gett. X, Y)
+            paren_witness_match = re.search(r'\(gett?\.\s*([^)]+)\)', line)
+            if paren_witness_match:
+                _, marriage_witnesses = self.parse_witnesses("gett. " + paren_witness_match.group(1))
+            # Patroon 2: , gett. X, Y, met (zonder haakjes)
+            elif re.search(r',\s*gett?\.\s*', line):
+                gett_part = re.split(r',\s*gett?\.\s*', line, maxsplit=1)
+                if len(gett_part) > 1:
+                    witness_text = re.split(r',?\s*\bmet\b', gett_part[1], maxsplit=1)[0]
+                    _, marriage_witnesses = self.parse_witnesses("gett. " + witness_text)
+            
+            if marriage_witnesses:
+                self.current_marriage.witnesses = marriage_witnesses
+            
             # Extract plaats en datum
             place_date_match = re.search(
-                r"(?:ondertr\.?\s*/?\s*tr\.?|otr?\.?\s*/?\s*tr\.?|tr\.)\s+(?:als\s+\w+\s+)?(.+?)(?:\(|met|$)", line, re.IGNORECASE
+                r"(?:ondertr\.?\s*/?\s*tr\.?|otr?\.?\s*/?\s*tr\.?|tr\.)\s+(?:als\s+\w+\s+)?(.+?)(?:\(|gett?\.|met|$)", line, re.IGNORECASE
             )
             if place_date_match:
                 place_date_str = place_date_match.group(1).strip()
-                place, date = self.parse_place_date(place_date_str)
-                self.current_marriage.marriage_place = place
-                self.current_marriage.marriage_date = date
+                
+                # Herken dual-date patroon voor Otr./tr.: "Plaats DD-MM/DD-MM-YYYY" of "Plaats DD-MM / DD-MM-YYYY"
+                # Bijv: "RK Ooij en Persingen 19-10/07-11-1770" → engagement=19-10-1770, marriage=07-11-1770, place=RK Ooij en Persingen
+                # Bijv: "Gendt 01-08/22-08-1697" → engagement=01-08-1697, marriage=22-08-1697, place=Gendt
+                dual_date_match = re.search(r'(\d{1,2}-\d{1,2})\s*/\s*(\d{1,2}-\d{1,2}-\d{4})', place_date_str)
+                if dual_date_match:
+                    eng_date_str = dual_date_match.group(1)
+                    mar_date_str = dual_date_match.group(2)
+                    # Voeg jaar toe aan ondertrouw-datum als alleen DD-MM
+                    year = re.search(r'\d{4}$', mar_date_str).group()
+                    eng_date_str = f"{eng_date_str}-{year}"
+                    # Extract plaats (alles voor de eerste datum)
+                    place_str = place_date_str[:dual_date_match.start()].strip().rstrip('.,;')
+                    self.current_marriage.marriage_place = place_str if place_str else None
+                    self.current_marriage.marriage_date = mar_date_str
+                    self.current_marriage.engagement_date = eng_date_str
+                    self.current_marriage.engagement_place = place_str if place_str else None
+                else:
+                    place, date = self.parse_place_date(place_date_str)
+                    self.current_marriage.marriage_place = place
+                    self.current_marriage.marriage_date = date
 
             # Check of partner naam op dezelfde regel staat (na "met")
             # Bijvoorbeeld: "Ondertr. / tr. Gendt 01-08/22-08-1697 met Maria VAN BERCK [289]"
@@ -1132,12 +1478,38 @@ class StamboomParser:
                 # Sla kind op met huwelijksnummer: (child_ref, marriage_num)
                 # Als marriage_num None is (geen "Uit (X):"), dan is het uit "Hieruit:" (eerste huwelijk)
                 marriage_num = self.current_marriage_num if self.current_marriage_num is not None else 1
+                
+                # Duplicaat-fix: als vorige regel ALLEEN naam bevat en huidige regel plaats/jaar + zie
+                # (geen andere naam op huidig regel), dan vervang het unnamed child door referentie.
+                # Bijv: "Hermina RUTJES" (vorige) + "Bergharen 1820, zie V.14" (huidig) → één persoon
+                # Maar "Remigius Jozef Maria PELT, zie IX.30" (huidig, met naam) → twee personen
+                before_zie = line[:line.index('zie')].strip().rstrip(',;')
+                has_name_before_zie = bool(re.search(r'[A-Z][A-Za-z\s]+[A-Z]', before_zie))
+                
+                if (not has_name_before_zie and  # Huidig regel heeft geen naam voor "zie"
+                    self.current_child and 
+                    self.current_child.generation_id in [ref for ref, _ in self.current_person.children] and
+                    not self.current_child.birth_date and not self.current_child.baptism_date and
+                    not self.current_child.death_date and not self.current_child.burial_date and
+                    not self.current_child.marriages):
+                    # Vorige unnamed child heeft geen data en huidig regel heeft geen naam
+                    # → waarschijnlijk plaats-info voor vorige child = duplicaat
+                    # Verwijder unnamed child en gebruik referentie
+                    self.current_person.children = [
+                        (ref, mn) for ref, mn in self.current_person.children 
+                        if ref != self.current_child.generation_id
+                    ]
+                    self.unnamed_children = [
+                        uc for uc in self.unnamed_children 
+                        if uc.generation_id != self.current_child.generation_id
+                    ]
+                
                 self.current_person.children.append((child_ref, marriage_num))
                 self.current_child = None  # Reset current child
                 self.current_child_has_baptism = False  # Reset doop flag
                 self.child_marriage_context = False  # Reset huwelijk context
                 self.current_child_spouse_stored = False  # Reset partner-opgeslagen vlag
-            elif re.match(r"^[A-Z•]", line) and not any(
+            elif (re.match(r"^[A-Z•(]", line) or re.match(r"^\d+\.?\s*\t", line)) and not any(
                 keyword in line.lower()
                 for keyword in ["arch.", "beers", "wanroij", "ibid", "error", "generatie", "nageslacht",
                                 "http://", "https://", "www.", "(kinderen)", "ik heb", "ik heb gezocht",
@@ -1145,7 +1517,7 @@ class StamboomParser:
             ):
                 # Filter notitie-achtige regels (te lang, of beginnen met algemene woorden)
                 # Skip regels die beginnen met algemene woorden (niet namen)
-                if re.match(r"^(Zo'n|De|Het|In|Van|Op|Een|Brieven|Archive|Door|Voor|Ik\s)\s", line):
+                if re.match(r"^(Zo'n|De|Het|In|Van|Op|Een|Brieven|Archive|Door|Voor|Ik\s|Geen|Dit|Er|Zij|Hij|Niet|Nog|Wel|Als|Bij|Uit|Dat|Die|Dergelijke|Mogelijk|Volgens|Vermeld|Merkwaardig)\s", line):
                     return
 
                 # Skip regels met cijfers gevolgd door woorden (waarschijnlijk notities)
@@ -1216,8 +1588,10 @@ class StamboomParser:
                 # Dit is een kind zonder generatie ID
                 child_line = line.strip()
 
-                # Verwijder bullet points
+                # Verwijder bullet points, nummering en annotaties als "(Hyp.)" (hypothetisch)
                 child_line = re.sub(r'^[•\-]\s*', '', child_line)
+                child_line = re.sub(r'^\d+\.?\s*\t\s*', '', child_line)  # "1.\tElisabeth" → "Elisabeth"
+                child_line = re.sub(r'^\(Hyp\.?\)\s*', '', child_line, flags=re.IGNORECASE)
 
                 # In dit document hebben kindnamen altijd een ACHTERNAAM IN HOOFDLETTERS (bijv. "THOMASSEN")
                 # Regels zonder 3+ aaneengesloten hoofdletters VOOR DE EERSTE KOMMA zijn notities, geen kindnamen
@@ -1505,6 +1879,10 @@ class StamboomParser:
                     spouse_person.birth_place = marriage.spouse_birth_place
                     spouse_person.death_date = marriage.spouse_death_date
                     spouse_person.death_place = marriage.spouse_death_place
+                    spouse_person.baptism_date = marriage.spouse_baptism_date
+                    spouse_person.baptism_place = marriage.spouse_baptism_place
+                    spouse_person.burial_date = marriage.spouse_burial_date
+                    spouse_person.burial_place = marriage.spouse_burial_place
                     # Bepaal geslacht (tegenovergestelde van hoofdpersoon)
                     if person.sex == "M":
                         spouse_person.sex = "F"
@@ -1628,6 +2006,14 @@ class StamboomParser:
                             # Voeg partner toe aan spouse_persons
                             spouse_person = Person(spouse_key, None)
                             spouse_person.name = marriage.spouse_name
+                            spouse_person.birth_date = marriage.spouse_birth_date
+                            spouse_person.birth_place = marriage.spouse_birth_place
+                            spouse_person.death_date = marriage.spouse_death_date
+                            spouse_person.death_place = marriage.spouse_death_place
+                            spouse_person.baptism_date = marriage.spouse_baptism_date
+                            spouse_person.baptism_place = marriage.spouse_baptism_place
+                            spouse_person.burial_date = marriage.spouse_burial_date
+                            spouse_person.burial_place = marriage.spouse_burial_place
                             # Bepaal geslacht op basis van parent
                             spouse_person.sex = "F" if child.sex == "M" else "M" if child.sex == "F" else None
                             spouse_persons[spouse_key] = spouse_person
@@ -2041,7 +2427,15 @@ class StamboomParser:
                             f.write(f"2 DATE {marriage.marriage_date}\n")
                         if marriage.marriage_place:
                             f.write(f"2 PLAC {marriage.marriage_place}\n")
-                    # Partner NOTE niet meer nodig - partner is nu een WIFE/HUSB record
+                        if marriage.witnesses:
+                            witnesses = ", ".join(marriage.witnesses)
+                            f.write(f"2 NOTE Getuigen: {witnesses}\n")
+                    if marriage.engagement_date or marriage.engagement_place:
+                        f.write("1 ENGA\n")
+                        if marriage.engagement_date:
+                            f.write(f"2 DATE {marriage.engagement_date}\n")
+                        if marriage.engagement_place:
+                            f.write(f"2 PLAC {marriage.engagement_place}\n")
 
             # Trailer
             f.write("0 TRLR\n")

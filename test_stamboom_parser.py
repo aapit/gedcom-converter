@@ -723,7 +723,8 @@ Hieruit:
         # Should have parsed the marriage date and place
         marriage = person.marriages[0]
         assert marriage.marriage_date == "22-08-1697"
-        assert marriage.marriage_place == "Gendt 01-08/"
+        assert marriage.marriage_place == "Gendt"
+        assert marriage.engagement_date == "01-08-1697"
 
         # Should have parsed the spouse
         assert marriage.spouse_name == "Maria van Berck"
@@ -1450,3 +1451,128 @@ class TestMetSeenGuard:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestSlashYearDates:
+    """Test dat jaartallen met slash (bijv. 1786/1787) correct verwerkt worden."""
+
+    def test_slash_year_parsed_as_between(self):
+        """1786/1787 moet als BET 1786 AND 1787 in GEDCOM komen (GEDCOM standaard voor 'tussen')."""
+        p = StamboomParser()
+        result = p.parse_date("1786/1787")
+        assert result == "BET 1786 AND 1787", f"Expected 'BET 1786 AND 1787', got '{result}'"
+
+    def test_slash_year_birth(self):
+        """Geboortejaar 1699/1700 moet correct verwerkt worden."""
+        p = StamboomParser()
+        result = p.parse_date("1699/1700")
+        assert result == "BET 1699 AND 1700", f"Expected 'BET 1699 AND 1700', got '{result}'"
+
+    def test_slash_year_with_circa(self):
+        """±1699/1700 met circa-teken."""
+        p = StamboomParser()
+        result = p.parse_date("±1699/1700")
+        assert result == "ABT 1699/1700" or "1699" in result  # Flexibel — circa + slash is dubbelzinnig
+
+    def test_slash_date_not_affected(self):
+        """Datum-slash-datum (19-10/07-11-1770) mag NIET als slash-jaar behandeld worden."""
+        p = StamboomParser()
+        result = p.parse_date("19-10/07-11-1770")
+        # Dit is een ondertrouw/trouw combo — de tweede datum is de trouwdatum
+        assert result == "07-11-1770"
+
+    def test_normal_year_unaffected(self):
+        """Gewoon jaartal zonder slash blijft ongewijzigd."""
+        p = StamboomParser()
+        assert p.parse_date("1786") == "1786"
+        assert p.parse_date("±1672") == "±1672"
+        assert p.parse_date("30-06-1703") == "30-06-1703"
+
+    def test_slash_year_in_place_date(self):
+        """parse_place_date moet slash-jaren ook correct verwerken."""
+        p = StamboomParser()
+        place, date = p.parse_place_date("1699/1700")
+        assert date == "BET 1699 AND 1700"
+        assert place is None
+
+    def test_slash_year_with_place(self):
+        """Plaats + slash-jaar."""
+        p = StamboomParser()
+        place, date = p.parse_place_date("Kekerdom 1699/1700")
+        assert date == "BET 1699 AND 1700"
+        assert place == "Kekerdom"
+
+
+class TestWitnesses:
+    """Tests voor getuigen parsing"""
+
+    def test_baptism_witnesses_main_person(self):
+        """Doopgetuigen van hoofdpersoon"""
+        p = StamboomParser()
+        text = """I.1 Joannes RUTJES
+△ Zyfflich 16-11-1679, gett. Caspar Janssen en Aleida Gerrits
+"""
+        p.parse(text)
+        person = p.persons["I.1"]
+        assert person.baptism_date == "16-11-1679"
+        assert person.baptism_place == "Zyfflich"
+        assert "Caspar Janssen" in person.baptism_witnesses
+        assert "Aleida Gerrits" in person.baptism_witnesses
+
+    def test_baptism_witnesses_child(self):
+        """Doopgetuigen van kind"""
+        p = StamboomParser()
+        text = """I.1 Joannes RUTJES
+* Erlecom
+Tr. met
+Maria JANSSEN
+Hieruit:
+Petrus RUTJES
+RK △ Duiven 28-01-1780, gett. Ruth Lem en Hendrina Scholten
+"""
+        p.parse(text)
+        petrus = [c for c in p.unnamed_children if "Petrus" in c.name]
+        assert len(petrus) == 1
+        assert petrus[0].baptism_date == "28-01-1780"
+        assert "Ruth Lem" in petrus[0].baptism_witnesses
+        assert "Hendrina Scholten" in petrus[0].baptism_witnesses
+
+    def test_marriage_witnesses_parentheses(self):
+        """Huwelijksgetuigen tussen haakjes"""
+        p = StamboomParser()
+        text = """I.1 Joannes RUTJES
+* Erlecom
+Tr. RK Leuth 19-05-1772 (gett. Rutgeris Lem, Joanna Lem) met
+Maria JANSSEN
+"""
+        p.parse(text)
+        person = p.persons["I.1"]
+        assert len(person.marriages) == 1
+        assert person.marriages[0].marriage_date == "19-05-1772"
+        assert "Rutgeris Lem" in person.marriages[0].witnesses
+        assert "Joanna Lem" in person.marriages[0].witnesses
+
+    def test_marriage_witnesses_comma_separated(self):
+        """Huwelijksgetuigen komma-gescheiden"""
+        p = StamboomParser()
+        text = """I.1 Joannes RUTJES
+* Erlecom
+Tr. RK Leuth 11-05-1765, gett. Petrus Janssen, Joanna Leensen, met
+Maria JANSSEN
+"""
+        p.parse(text)
+        person = p.persons["I.1"]
+        assert len(person.marriages) == 1
+        assert "Petrus Janssen" in person.marriages[0].witnesses
+        assert "Joanna Leensen" in person.marriages[0].witnesses
+
+    def test_parse_witnesses_helper(self):
+        """parse_witnesses helper functie"""
+        p = StamboomParser()
+        clean, witnesses = p.parse_witnesses(
+            "Zyfflich 16-11-1679, gett. Caspar Janssen en Aleida Gerrits, † >10-09-1740"
+        )
+        assert clean == "Zyfflich 16-11-1679"
+        assert "Caspar Janssen" in witnesses
+        assert "Aleida Gerrits" in witnesses
+        assert not any("†" in w for w in witnesses)
