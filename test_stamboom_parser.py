@@ -886,7 +886,7 @@ Remigius Jozef Maria PELT, zie IX.30
                         f"Surname '{surname}' contains no letters in: {name_line}"
 
             # Wim Berg should have 'Berg' as surname, not '.'
-            assert any("Theo" in line and "/Pelt/" in line for line in name_lines), \
+            assert any("Wim" in line and "/Berg/" in line for line in name_lines), \
                 "Expected Wim Berg to have surname 'Berg'"
 
         finally:
@@ -1121,7 +1121,7 @@ class TestSoftLinebreak:
         assert "Wilhelm Linsen" in child_names
 
         theodorus = next(c for c in self.parser.unnamed_children
-                         if c.parent_ref == "V.1" and Johannes in c.name)
+                         if c.parent_ref == "V.1" and "Johannes" in c.name)
         assert theodorus.marriages[0].spouse_name == "Wilhelmina Eujen"
         assert theodorus.birth_date != "±1722"
 
