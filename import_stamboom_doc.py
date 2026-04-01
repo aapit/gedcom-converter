@@ -231,7 +231,13 @@ class StamboomParser:
         """Lees .doc of .docx bestand en converteer naar tekst.
         
         .txt bestanden worden direct gelezen.
-        .doc/.docx bestanden worden geconverteerd met textutil (macOS) of antiword/python-docx.
+        .doc/.docx bestanden worden geconverteerd met het beste beschikbare
+        gereedschap per platform:
+        - macOS: textutil
+        - Windows: Microsoft Word via COM automation (win32com)
+        - Linux: LibreOffice (headless)
+        - Fallback .docx: python-docx
+        - Fallback .doc: antiword
         """
         doc_path = str(doc_path)
         
@@ -240,8 +246,51 @@ class StamboomParser:
             with open(doc_path, 'r', encoding='utf-8') as f:
                 return f.read()
         
-        # .docx via python-docx als fallback
+        # .docx via platform-specifieke tools, daarna python-docx fallback
         if doc_path.endswith('.docx'):
+            text = self._convert_with_platform_tool(doc_path)
+            if text is not None:
+                return text
+            # Fallback: python-docx
+            try:
+                import docx
+                doc = docx.Document(doc_path)
+                return '\n'.join(p.text for p in doc.paragraphs)
+            except ImportError:
+                raise RuntimeError(
+                    f"Kan {doc_path} niet lezen: geen platform-tool beschikbaar "
+                    f"en python-docx niet geïnstalleerd"
+                )
+        
+        # .doc via platform-specifieke tools, daarna antiword fallback
+        text = self._convert_with_platform_tool(doc_path)
+        if text is not None:
+            return text
+        try:
+            result = subprocess.run(
+                ["antiword", doc_path],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            return result.stdout
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            raise RuntimeError(
+                f"Kan {doc_path} niet lezen. Installeer een van: "
+                f"textutil (macOS), Microsoft Word (Windows), "
+                f"LibreOffice (Linux), of antiword"
+            )
+
+    def _convert_with_platform_tool(self, doc_path):
+        """Probeer doc/docx te converteren met het platform-specifieke gereedschap.
+        
+        Returns tekst als string, of None als geen tool beschikbaar is.
+        """
+        import platform as _platform
+        system = _platform.system()
+        
+        # macOS: textutil
+        if system == "Darwin":
             try:
                 result = subprocess.run(
                     ["textutil", "-convert", "txt", doc_path, "-stdout"],
@@ -251,34 +300,58 @@ class StamboomParser:
                 )
                 return result.stdout
             except (FileNotFoundError, subprocess.CalledProcessError):
-                # Fallback: python-docx
-                try:
-                    import docx
-                    doc = docx.Document(doc_path)
-                    return '\n'.join(p.text for p in doc.paragraphs)
-                except ImportError:
-                    raise RuntimeError(f"Kan {doc_path} niet lezen: textutil niet beschikbaar en python-docx niet geïnstalleerd")
+                return None
         
-        # .doc via textutil of antiword
-        try:
-            result = subprocess.run(
-                ["textutil", "-convert", "txt", doc_path, "-stdout"],
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-            return result.stdout
-        except (FileNotFoundError, subprocess.CalledProcessError):
+        # Windows: Microsoft Word via COM automation
+        if system == "Windows":
             try:
-                result = subprocess.run(
-                    ["antiword", doc_path],
-                    capture_output=True,
-                    text=True,
-                    check=True,
+                import win32com.client
+            except ImportError:
+                print("⚠️  pywin32 is niet geïnstalleerd. Installeer met: pip install pywin32")
+                return None
+            try:
+                from pathlib import Path
+                abs_path = str(Path(doc_path).resolve())
+                word = win32com.client.Dispatch("Word.Application")
+                word.Visible = False
+                try:
+                    doc = word.Documents.Open(abs_path)
+                    text = doc.Content.Text
+                    doc.Close(False)
+                    return text
+                finally:
+                    word.Quit()
+            except ImportError:
+                print("⚠️  pywin32 is niet geïnstalleerd. Installeer met: pip install pywin32")
+                return None
+            except Exception as e:
+                print(
+                    f"⚠️  Kan Microsoft Word niet starten: {e}\n"
+                    f"    Zorg dat Microsoft Word geïnstalleerd is op deze computer.\n"
+                    f"    Download Word via https://www.microsoft.com/microsoft-365"
                 )
-                return result.stdout
+                return None
+        
+        # Linux: LibreOffice headless
+        if system == "Linux":
+            try:
+                import tempfile
+                from pathlib import Path
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    subprocess.run(
+                        ["libreoffice", "--headless", "--convert-to", "txt:Text",
+                         "--outdir", tmpdir, doc_path],
+                        capture_output=True,
+                        check=True,
+                    )
+                    txt_file = Path(tmpdir) / (Path(doc_path).stem + ".txt")
+                    if txt_file.exists():
+                        return txt_file.read_text(encoding='utf-8')
+                return None
             except (FileNotFoundError, subprocess.CalledProcessError):
-                raise RuntimeError(f"Kan {doc_path} niet lezen: textutil en antiword niet beschikbaar")
+                return None
+        
+        return None
 
     def parse_date(self, text):
         """Parse datum uit verschillende formaten"""
