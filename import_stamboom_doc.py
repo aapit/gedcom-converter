@@ -2514,21 +2514,24 @@ class StamboomParser:
             f.write("0 TRLR\n")
 
 
-def process_file(doc_file, output_file=None, verbose=True):
+def process_file(doc_file, output_file=None, output_dir=None, verbose=True):
     """Process een enkel Word document naar GEDCOM"""
-    # Zorg dat gedcom directory bestaat
-    gedcom_dir = Path("gedcom")
-    gedcom_dir.mkdir(exist_ok=True)
+    # Bepaal output directory
+    if output_dir is None:
+        output_dir = get_base_dir() / "gedcom"
+    else:
+        output_dir = Path(output_dir)
+    output_dir.mkdir(exist_ok=True)
 
     # Bepaal output bestandsnaam
     if output_file is None:
         # Converteer bijv. "THOMASSEN 16 David.doc" naar "gedcom/THOMASSEN_16_David.ged"
         doc_path = Path(doc_file)
         output_name = doc_path.stem.replace(" ", "_") + ".ged"
-        output_file = gedcom_dir / output_name
+        output_file = output_dir / output_name
     else:
-        # Als een specifieke output file is opgegeven, plaats die ook in gedcom/
-        output_file = gedcom_dir / Path(output_file).name
+        # Als een specifieke output file is opgegeven, plaats die ook in output_dir/
+        output_file = output_dir / Path(output_file).name
 
     if verbose:
         print(f"\n{'='*60}")
@@ -2581,7 +2584,24 @@ def process_file(doc_file, output_file=None, verbose=True):
     return True
 
 
+def get_base_dir():
+    """Bepaal de basisdirectory: waar de exe/script staat.
+    
+    Bij PyInstaller exe: de map waar de .exe in staat.
+    Bij normaal Python script: de map waar het script in staat.
+    """
+    if getattr(sys, 'frozen', False):
+        # PyInstaller exe
+        return Path(sys.executable).parent
+    else:
+        return Path(__file__).parent
+
+
 def main():
+    base_dir = get_base_dir()
+    input_dir = base_dir / "stambomen"
+    output_dir = base_dir / "gedcom"
+
     print("Stamboom Word Document naar GEDCOM Converter")
     print("=" * 60)
 
@@ -2593,25 +2613,27 @@ def main():
 
         if not Path(doc_file).exists():
             print(f"❌ Bestand niet gevonden: {doc_file}")
+            _wait_for_exit()
             return
 
-        process_file(doc_file, output_file, verbose=True)
+        process_file(doc_file, output_file, output_dir=output_dir, verbose=True)
     else:
-        # Verwerk alle .doc bestanden in stambomen directory
-        stambomen_dir = Path("stambomen")
-
-        if not stambomen_dir.exists():
-            # Fallback naar oude gedrag
-            print("\nGeen stambomen directory gevonden. Verwerk standaard bestand...")
-            process_file("THOMASSEN 16 David.doc", "stamboom.ged", verbose=True)
-            return
+        # Maak directories aan als ze niet bestaan
+        input_dir.mkdir(exist_ok=True)
+        output_dir.mkdir(exist_ok=True)
 
         # Vind alle .doc en .docx bestanden
-        doc_files = list(stambomen_dir.glob("*.doc")) + list(stambomen_dir.glob("*.docx"))
+        doc_files = list(input_dir.glob("*.doc")) + list(input_dir.glob("*.docx"))
 
         if not doc_files:
-            print("❌ Geen .doc bestanden gevonden in stambomen directory")
+            print(f"\n📂 Plaats je Word-documenten (.doc / .docx) in de map:")
+            print(f"   {input_dir}")
+            print(f"\n   Start daarna dit programma opnieuw.")
+            _wait_for_exit()
             return
+
+        print(f"\n📂 Input:  {input_dir}")
+        print(f"📂 Output: {output_dir}")
 
         print(f"\nGevonden {len(doc_files)} stamboom document(en):")
         for doc_file in doc_files:
@@ -2621,12 +2643,24 @@ def main():
 
         success_count = 0
         for doc_file in doc_files:
-            if process_file(str(doc_file), verbose=True):
+            if process_file(str(doc_file), output_dir=output_dir, verbose=True):
                 success_count += 1
 
         print(f"\n{'='*60}")
         print(f"✓ Klaar! {success_count}/{len(doc_files)} bestanden succesvol verwerkt")
+        print(f"  GEDCOM bestanden staan in: {output_dir}")
         print(f"{'='*60}")
+
+    _wait_for_exit()
+
+
+def _wait_for_exit():
+    """Wacht op Enter zodat het console-venster niet meteen sluit."""
+    print("\nDruk op Enter om af te sluiten...")
+    try:
+        input()
+    except EOFError:
+        pass
 
 
 if __name__ == "__main__":
