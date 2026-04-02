@@ -4,7 +4,10 @@ gedcom/*.ged
 # Keep the directory structure
 !gedcom/.gitkeep
 
-# Input files (personal data)
+# Input files (personal data) — NIET VERWIJDEREN!
+# Deze bestanden staan alleen op NC en in David's lokale kopie.
+# Ze worden NIET door git getracked, maar moeten WEL behouden blijven op NC.
+# ⚠️  NOOIT de NC directory hernoemen, verplaatsen of verwijderen!
 kwartierstaat TT excel.xlsx
 stambomen/*.doc
 stambomen/*.docx
