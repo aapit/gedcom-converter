@@ -264,3 +264,145 @@ class TestBroodbakkerSameAsPerson:
         assert any("Paulus" in n for n in child_names)
         assert any("Maria" in n for n in child_names)
         assert len(child_names) == 2, f"Expected exactly 2 children, got: {child_names}"
+
+
+class TestInfansEdgeCases:
+    """Edge cases voor infans/NN kinderen."""
+
+    def setup_method(self):
+        self.parser = StamboomParser()
+
+    def test_infans_with_death_symbol(self):
+        """Infans met † (sterfte) i.p.v. ▭ (begrafenis)."""
+        text = (
+            "IV.5 Agnes RUTJES, dr. van III.1\n"
+            "* Beers 1760\n"
+            "Tr. met\n"
+            "Henricus BRUIJNS\n"
+            "Hieruit:\n"
+            "infans † Beers 12-03-1761\n"
+            "Joannes BRUIJNS\n"
+        )
+        self.parser.parse(text)
+        nn_children = [c for c in self.parser.unnamed_children
+                       if c.parent_ref == "IV.5" and c.name == "NN"]
+        assert len(nn_children) == 1, f"Expected 1 NN child, got {len(nn_children)}"
+        assert nn_children[0].death_date is not None, "NN child should have death date"
+
+    def test_infans_after_existing_child(self):
+        """Infans na een bestaand kind — moet nieuw NN kind zijn, niet op vorig kind."""
+        text = (
+            "IV.5 Agnes RUTJES, dr. van III.1\n"
+            "* Beers 1760\n"
+            "Tr. met\n"
+            "Henricus BRUIJNS\n"
+            "Hieruit:\n"
+            "Joannes BRUIJNS\n"
+            "* Beers 1762\n"
+            "infans (Pauli) ▭ Zyfflich 07-11-1763\n"
+            "Maria BRUIJNS\n"
+        )
+        self.parser.parse(text)
+        children = [c for c in self.parser.unnamed_children if c.parent_ref == "IV.5"]
+        names = [c.name for c in children]
+        assert "NN" in names, f"Expected NN child, got: {names}"
+        assert "Joannes Bruijns" in names, f"Expected Joannes, got: {names}"
+        assert "Maria Bruijns" in names, f"Expected Maria, got: {names}"
+        # Joannes should NOT have burial info from infans
+        joannes = next(c for c in children if "Joannes" in c.name)
+        assert joannes.burial_place is None, \
+            f"Joannes should not have burial info from infans, got: {joannes.burial_place}"
+
+    def test_multiple_infans(self):
+        """Meerdere infans kinderen per gezin."""
+        text = (
+            "IV.5 Agnes RUTJES, dr. van III.1\n"
+            "* Beers 1760\n"
+            "Tr. met\n"
+            "Henricus BRUIJNS\n"
+            "Hieruit:\n"
+            "infans ▭ Zyfflich 07-11-1761\n"
+            "infans ▭ Zyfflich 03-05-1763\n"
+            "Joannes BRUIJNS\n"
+        )
+        self.parser.parse(text)
+        nn_children = [c for c in self.parser.unnamed_children
+                       if c.parent_ref == "IV.5" and c.name == "NN"]
+        assert len(nn_children) == 2, f"Expected 2 NN children, got {len(nn_children)}"
+        # Each should have unique IDs
+        ids = [c.generation_id for c in nn_children]
+        assert ids[0] != ids[1], "NN children should have unique IDs"
+
+
+class TestFunctionPatternFalsePositives:
+    """Voornamen die lijken op titels mogen niet gefilterd worden."""
+
+    def setup_method(self):
+        self.parser = StamboomParser()
+
+    def test_pater_as_first_name_with_surname(self):
+        """'Pater RUTJES' is een persoon, niet een functie."""
+        text = (
+            "V.1 Joannes RUTJES, zn. van IV.1\n"
+            "* Beers 1780\n"
+            "Tr. met\n"
+            "Maria JANSSEN\n"
+            "Hieruit:\n"
+            "Pater RUTJES\n"
+            "Maria RUTJES\n"
+        )
+        self.parser.parse(text)
+        child_names = [c.name for c in self.parser.unnamed_children if c.parent_ref == "V.1"]
+        # "Pater RUTJES" has a surname in uppercase → should be parsed as a child
+        assert any("Pater" in n for n in child_names), \
+            f"'Pater RUTJES' should be a child (has surname), got: {child_names}"
+
+    def test_deken_as_function_without_surname(self):
+        """'Deken van het kapittel' is een functie, niet een persoon."""
+        text = (
+            "V.1 Joannes RUTJES, zn. van IV.1\n"
+            "* Beers 1780\n"
+            "Tr. met\n"
+            "Maria JANSSEN\n"
+            "Hieruit:\n"
+            "Theodorus RUTJES\n"
+            "Deken van het kapittel\n"
+            "Maria RUTJES\n"
+        )
+        self.parser.parse(text)
+        child_names = [c.name for c in self.parser.unnamed_children if c.parent_ref == "V.1"]
+        assert not any("Deken" in n for n in child_names), \
+            f"'Deken van het kapittel' should not be a child, got: {child_names}"
+
+    def test_achternaam_brouwer_not_filtered(self):
+        """Persoon met achternaam 'BROUWER' mag niet als beroep gefilterd worden."""
+        text = (
+            "V.1 Joannes RUTJES, zn. van IV.1\n"
+            "* Beers 1780\n"
+            "Tr. met\n"
+            "Maria JANSSEN\n"
+            "Hieruit:\n"
+            "Petrus BROUWER\n"
+            "Maria RUTJES\n"
+        )
+        self.parser.parse(text)
+        child_names = [c.name for c in self.parser.unnamed_children if c.parent_ref == "V.1"]
+        assert any("Brouwer" in n for n in child_names), \
+            f"'Petrus BROUWER' should be a child, got: {child_names}"
+
+    def test_child_after_infans_still_parsed(self):
+        """Kind na een infans-regel wordt nog correct geparsed."""
+        text = (
+            "IV.5 Agnes RUTJES, dr. van III.1\n"
+            "* Beers 1760\n"
+            "Tr. met\n"
+            "Henricus BRUIJNS\n"
+            "Hieruit:\n"
+            "infans ▭ Zyfflich 07-11-1761\n"
+            "Joannes BRUIJNS\n"
+            "Maria BRUIJNS\n"
+        )
+        self.parser.parse(text)
+        children = [c for c in self.parser.unnamed_children if c.parent_ref == "IV.5"]
+        names = [c.name for c in children]
+        assert len(children) == 3, f"Expected 3 children (NN, Joannes, Maria), got: {names}"

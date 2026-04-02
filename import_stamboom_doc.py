@@ -116,21 +116,23 @@ class StamboomParser:
     }
 
     # Patronen die functies/titels aanduiden (geen persoonsnamen)
-    # Regels die hiermee beginnen worden als notitie behandeld, niet als kind
+    # Regels die hiermee beginnen worden als notitie behandeld, niet als kind.
+    # Uitzondering: als na het titelwoord een ACHTERNAAM IN HOOFDLETTERS volgt,
+    # is het waarschijnlijk een persoon met die voornaam (bijv. "Pater RUTJES").
     FUNCTION_PATTERNS = [
-        r'^[Ll]id\s+van\b',              # "Lid van de 3e orde"
-        r'^[Bb]isschop\b',                # "Bisschop v.E."
-        r'^[Pp]astoor\b',                 # "Pastoor van ..."
-        r'^[Kk]apelaan\b',               # "Kapelaan te ..."
-        r'^[Pp]ater\b',                   # "Pater ..."
-        r'^[Pp]riester\b',               # "Priester ..."
-        r'^[Rr]ector\b',                  # "Rector ..."
-        r'^[Dd]eken\b',                   # "Deken van ..."
-        r'^[Pp]relaat\b',                 # "Prelaat ..."
-        r'^[Kk]anunnik\b',               # "Kanunnik ..."
-        r'^[Oo]rde\s+van\b',             # "Orde van ..."
-        r'^[Mm]issionaris\b',             # "Missionaris ..."
-        r'^[Vv]icaris\b',                 # "Vicaris ..."
+        re.compile(r'^lid\s+van\b', re.IGNORECASE),              # "Lid van de 3e orde"
+        re.compile(r'^bisschop\b', re.IGNORECASE),                # "Bisschop v.E."
+        re.compile(r'^pastoor\b', re.IGNORECASE),                 # "Pastoor van ..."
+        re.compile(r'^kapelaan\b', re.IGNORECASE),                # "Kapelaan te ..."
+        re.compile(r'^pater\b', re.IGNORECASE),                   # "Pater ..."
+        re.compile(r'^priester\b', re.IGNORECASE),                # "Priester ..."
+        re.compile(r'^rector\b', re.IGNORECASE),                  # "Rector ..."
+        re.compile(r'^deken\b', re.IGNORECASE),                   # "Deken van ..."
+        re.compile(r'^prelaat\b', re.IGNORECASE),                 # "Prelaat ..."
+        re.compile(r'^kanunnik\b', re.IGNORECASE),                # "Kanunnik ..."
+        re.compile(r'^orde\s+van\b', re.IGNORECASE),             # "Orde van ..."
+        re.compile(r'^missionaris\b', re.IGNORECASE),             # "Missionaris ..."
+        re.compile(r'^vicaris\b', re.IGNORECASE),                 # "Vicaris ..."
     ]
 
     def __init__(self):
@@ -149,6 +151,35 @@ class StamboomParser:
         self.pending_name_variants = []  # Tijdelijke opslag voor naamvarianten van hetzelfde kind
         self.last_child_marriage = None  # Laatste huwelijk van kind, voor ouder-info op volgende regel
         self.current_child_spouse_stored = False  # True nadat partner van kind is opgeslagen (voorkomt dat * / △ / † de kind-data overschrijft)
+
+    def _create_infans_child(self, line):
+        """Maak een NN (naamloos) kind aan vanuit een 'infans' regel.
+        
+        Parsed begrafenis- en sterfte-info uit de regel.
+        Stelt alle child-gerelateerde state-variabelen in.
+        """
+        child_id = f"{self.current_person.generation_id}_child_{len(self.unnamed_children)+1}"
+        child = Person(child_id, None)
+        child.name = "NN"
+        child.parent_ref = self.current_person.generation_id
+        marriage_num = self.current_marriage_num if self.current_marriage_num is not None else 1
+        child.parent_marriage_num = marriage_num
+        # Parse begrafenis info
+        if '▭' in line:
+            rest = line.split('▭', 1)[1].strip()
+            child.burial_place, child.burial_date = self.parse_place_date(rest)
+        # Parse sterfte info
+        if '†' in line:
+            rest = line.split('†', 1)[1].strip()
+            child.death_place, child.death_date = self.parse_place_date(rest)
+        child.notes.append(line.strip())
+        self.unnamed_children.append(child)
+        self.current_person.children.append((child_id, marriage_num))
+        self.current_child = child
+        self.current_child_has_baptism = False
+        self.child_marriage_context = False
+        self.current_child_spouse_stored = False
+        return child
 
     def parse_witnesses(self, text):
         """Extract getuigen uit tekst met 'gett.' of 'get.' patroon.
@@ -1170,22 +1201,9 @@ class StamboomParser:
             place, date = self.parse_place_date(rest)
 
             # Als dit een "infans" regel is in de kinderen sectie, maak een NN kind aan
-            if self.in_children_section and re.match(r'^infans\b', line, re.IGNORECASE) and not self.current_child:
-                child_id = f"{self.current_person.generation_id}_child_{len(self.unnamed_children)+1}"
-                child = Person(child_id, None)
-                child.name = "NN"
-                child.parent_ref = self.current_person.generation_id
-                marriage_num = self.current_marriage_num if self.current_marriage_num is not None else 1
-                child.parent_marriage_num = self.current_marriage_num
-                child.burial_place = place
-                child.burial_date = date
-                child.notes.append(line.strip())
-                self.unnamed_children.append(child)
-                self.current_person.children.append((child_id, marriage_num))
-                self.current_child = child
-                self.current_child_has_baptism = False
-                self.child_marriage_context = False
-                self.current_child_spouse_stored = False
+            # (ongeacht of er al een current_child is — infans is altijd een nieuw kind)
+            if self.in_children_section and re.match(r'^infans\b', line, re.IGNORECASE):
+                self._create_infans_child(line)
                 return
 
             if self.in_children_section and self.current_child and not self.current_child_spouse_stored:
@@ -1545,33 +1563,10 @@ class StamboomParser:
             # Herken "infans" regels als naamloos kind (NN)
             # Bijv: "infans (Pauli Rutjens) ▭ Zyfflich 07-11-1751"
             # Of: "infans ▭ Zyfflich 07-11-1751"
+            # NB: infans met ▭ wordt al afgevangen door de burial handler hierboven.
+            # Dit vangt infans-regels zonder ▭ op (bijv. "infans † Beers 1751").
             if re.match(r'^infans\b', line, re.IGNORECASE):
-                child_id = f"{self.current_person.generation_id}_child_{len(self.unnamed_children)+1}"
-                child = Person(child_id, None)
-                child.name = "NN"
-                child.parent_ref = self.current_person.generation_id
-                marriage_num = self.current_marriage_num if self.current_marriage_num is not None else 1
-                child.parent_marriage_num = self.current_marriage_num
-                # Parse eventuele begrafenis info
-                if '▭' in line:
-                    rest = line.split('▭', 1)[1].strip()
-                    bplace, bdate = self.parse_place_date(rest)
-                    child.burial_place = bplace
-                    child.burial_date = bdate
-                # Parse eventuele sterfte info
-                if '†' in line:
-                    rest = line.split('†', 1)[1].strip()
-                    dplace, ddate = self.parse_place_date(rest)
-                    child.death_place = dplace
-                    child.death_date = ddate
-                # Voeg notitie toe met originele tekst
-                child.notes.append(line.strip())
-                self.unnamed_children.append(child)
-                self.current_person.children.append((child_id, marriage_num))
-                self.current_child = child
-                self.current_child_has_baptism = False
-                self.child_marriage_context = False
-                self.current_child_spouse_stored = False
+                self._create_infans_child(line)
                 return
 
             # Skip cross-reference regels als "VII.3 ZIE JAEGERS" die niet als persoonshoofd worden herkend
@@ -1705,12 +1700,18 @@ class StamboomParser:
 
                 # Skip functieaanduidingen en religieuze titels
                 # Bijv. "Bisschop v.E. etc", "Lid van de 3e orde", "Pastoor te Beers"
+                # Maar NIET als er een ACHTERNAAM IN HOOFDLETTERS op de regel staat
+                # (bijv. "Pater RUTJES" is een persoon, geen functie)
                 # Deze worden als notitie bij het huidige kind opgeslagen
                 line_stripped = re.sub(r'^[•\-]\s*', '', line.strip())
-                if any(re.match(pat, line_stripped) for pat in self.FUNCTION_PATTERNS):
-                    if self.current_child:
-                        self.current_child.notes.append(line_stripped)
-                    return
+                if any(pat.match(line_stripped) for pat in self.FUNCTION_PATTERNS):
+                    # Check of er een achternaam (3+ hoofdletters) op de regel staat
+                    # Zo ja, dan is het waarschijnlijk een persoon met een titel-voornaam
+                    words_after_first = ' '.join(line_stripped.split()[1:])
+                    if not re.search(r'[A-Z]{3,}', words_after_first):
+                        if self.current_child:
+                            self.current_child.notes.append(line_stripped)
+                        return
 
                 # Als we in een huwelijk context van een kind zitten, check of dit een nieuw kind is
                 # of de partner naam
