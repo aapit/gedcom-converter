@@ -406,3 +406,89 @@ class TestFunctionPatternFalsePositives:
         children = [c for c in self.parser.unnamed_children if c.parent_ref == "IV.5"]
         names = [c.name for c in children]
         assert len(children) == 3, f"Expected 3 children (NN, Joannes, Maria), got: {names}"
+
+
+class TestRealDocumentValidation:
+    """Tests met het echte RUTJES document structuur."""
+
+    def setup_method(self):
+        self.parser = StamboomParser()
+
+    def test_child_with_year_after_comma_not_skipped(self):
+        """'Wilhelmina Theodora BRANTS, 1800.' moet een kind zijn, niet overgeslagen."""
+        text = (
+            "IV.2. Anna Maria RUTJES, dr. van III.1\n"
+            "△ Huissen 01-10-1769\n"
+            "Tr. Huissen 1797 met\n"
+            "Theodorus (Derk) BRANS / BRANTZ\n"
+            "Hieruit:\n"
+            "Theodora BRANDS\n"
+            "△ Huissen 1798.\n"
+            "Wilhelmina Theodora BRANTS, 1800.\n"
+            "Lutgarda BRANDS\n"
+            "△ Huissen 1802.\n"
+        )
+        self.parser.parse(text)
+        child_names = [c.name for c in self.parser.unnamed_children if c.parent_ref == "IV.2"]
+        assert any("Wilhelmina" in n for n in child_names), \
+            f"Wilhelmina Theodora Brants missing, got: {child_names}"
+        assert len(child_names) == 3, f"Expected 3 children, got {len(child_names)}: {child_names}"
+
+    def test_child_after_sibling_spouse_not_lost(self):
+        """Kind na het huwelijk van een ander kind moet niet verloren gaan."""
+        text = (
+            "IV.2. Anna Maria RUTJES, dr. van III.1\n"
+            "△ Huissen 01-10-1769\n"
+            "Tr. Huissen 1797 met\n"
+            "Theodorus (Derk) BRANS\n"
+            "Hieruit:\n"
+            "Lutgardis BRANS\n"
+            "* Huissen 06-09-1806.\n"
+            "Tr. Huissen 26-10-1831 met\n"
+            "Henricus Johannes WANSINK\n"
+            "* Arnhem 23-08-1810, zn. van Henricus Wansink en Lambertina Jansen.\n"
+            "Maria Catharina BRANS, 1808.\n"
+            "Paulina BRANTZ\n"
+            "* Huissen 03-03-1811.\n"
+        )
+        self.parser.parse(text)
+        child_names = [c.name for c in self.parser.unnamed_children if c.parent_ref == "IV.2"]
+        assert any("Maria Catharina" in n for n in child_names), \
+            f"Maria Catharina Brans missing, got: {child_names}"
+        assert any("Lutgardis" in n for n in child_names), \
+            f"Lutgardis Brans missing, got: {child_names}"
+        assert any("Paulina" in n for n in child_names), \
+            f"Paulina Brantz missing, got: {child_names}"
+        assert len(child_names) == 3, f"Expected 3 children, got {len(child_names)}: {child_names}"
+
+    def test_spouse_with_long_info_line(self):
+        """Echtgenoot met veel info op dezelfde regel (> 100 chars) moet correct geparsed worden."""
+        text = (
+            "VI.1 Johanna RUTJES, dr. van V.1\n"
+            "* Huissen 1850\n"
+            "Tr. met\n"
+            "Johannes BROUWER\n"
+            "Hieruit:\n"
+            "Maria Theodora BROUWER\n"
+            "* Duiven 1860/1861\n"
+            "Tr. Duiven 09-06-1890 met\n"
+            "Mattheus MAAS, * Bloemendaal 1831/1832, zn. van Johannes Maas en Margaretha Giebels, wed. van Alida Johanna Thus\n"
+            "Theodora Johanna BROUWER\n"
+            "* Duiven 1867/1868\n"
+            "Tr. Westervoort 07-05-1895 met\n"
+            "Reinirus BURGERS\n"
+        )
+        self.parser.parse(text)
+        children = [c for c in self.parser.unnamed_children if c.parent_ref == "VI.1"]
+        
+        maria = next((c for c in children if "Maria Theodora" in c.name), None)
+        assert maria is not None, f"Maria Theodora missing, got: {[c.name for c in children]}"
+        assert len(maria.marriages) >= 1
+        assert "Maas" in maria.marriages[0].spouse_name, \
+            f"Maria Theodora's spouse should be Maas, got: {maria.marriages[0].spouse_name}"
+        
+        theodora = next((c for c in children if "Theodora Johanna" in c.name), None)
+        assert theodora is not None, f"Theodora Johanna missing"
+        assert len(theodora.marriages) >= 1
+        assert "Burgers" in theodora.marriages[0].spouse_name, \
+            f"Theodora Johanna's spouse should be Burgers, got: {theodora.marriages[0].spouse_name}"

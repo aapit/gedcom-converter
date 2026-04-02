@@ -1480,10 +1480,6 @@ class StamboomParser:
                 if "http://" in line or "https://" in line or "www." in line.lower():
                     return
 
-                # Skip te lange regels
-                if len(line) > 100:
-                    return
-
                 # Skip regels met keywords
                 if not any(
                     keyword in line.lower()
@@ -1495,7 +1491,17 @@ class StamboomParser:
                     clean_name = re.sub(r'^[•\-*†△▭]\s*', '', clean_name)
                     clean_name = re.sub(r'\s*\[\d+\]\s*$', '', clean_name)
                     clean_name = re.sub(r'^\s*\(\d+\)\s*', '', clean_name)
+                    # Splits op levensgebeurtenissen — naam staat vóór het eerste symbool
                     clean_name = re.split(r'[*†△▭]', clean_name)[0].strip()
+                    # Strip ook alles na een komma gevolgd door spatie + info
+                    # (bijv. "Mattheus MAAS, * Bloemendaal" → "Mattheus MAAS")
+                    comma_parts = clean_name.split(',')
+                    if len(comma_parts) > 1:
+                        clean_name = comma_parts[0].strip()
+
+                    # Skip te lange namen (na cleanup)
+                    if len(clean_name) > 80:
+                        return
 
                     # Check minimum lengte (met NN exceptie)
                     if clean_name.upper() not in ["NN", "N.N."]:
@@ -1676,8 +1682,14 @@ class StamboomParser:
                 # Skip regels met cijfers gevolgd door woorden (waarschijnlijk notities)
                 # MAAR niet als het geboorte/sterfte symbolen bevat (* of †)
                 # EN niet als het een lange archiefregel is (> 200 chars) zoals huwelijkscontracten
-                if re.search(r'\d{2,}', line) and not re.search(r'[*†△▭]', line) and len(line) < 200:  # 2+ cijfers achter elkaar, geen levensgebeurtenissen, korte regel
-                    return
+                # EN niet als het een naam+jaartal patroon is (bijv. "Wilhelmina Theodora BRANTS, 1800.")
+                if re.search(r'\d{2,}', line) and not re.search(r'[*†△▭]', line) and len(line) < 200:
+                    # Uitzondering: "Naam ACHTERNAAM, jaartal" → dit is een kind met geboortejaar
+                    # Herken als er een woord met 3+ hoofdletters staat en het nummer een jaartal is (1500-2100)
+                    has_surname = re.search(r'[A-Z]{3,}', line)
+                    has_year = re.search(r'\b(1[5-9]\d{2}|20\d{2})\b', line)
+                    if not (has_surname and has_year):
+                        return
 
                 # Skip straatadressen (bijv. "Roermond Prinses Marijkestr. 5" of "Tooroplaan 1, Weert")
                 # Patroon: tekst met een straatafkorting (str., straat, weg, laan, ...) gevolgd door een huisnummer
